@@ -38,7 +38,7 @@ git clone https://github.com/octos-org/octos.git octos
 
 (`aichat/` and `makepad/` are git-ignored by this repo — they're referenced deps,
 not vendored. Both live in the [`octos-org/makepad`](https://github.com/octos-org/makepad)
-fork. Pin: framework `90dcc38`, build-tool `f563cf0`.)
+fork.)
 
 ## 2. Install `cargo-makepad`
 

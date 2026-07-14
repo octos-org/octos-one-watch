@@ -5730,6 +5730,17 @@ impl MatchEvent for App {
                 Err(e) => log::warn!("provisioning failed: {e}"),
             }
         }
+        // QR / intent LLM provisioning: a `makepad.PROVISION_CONFIG` extra (a JSON
+        // payload `{"llm_family":..,"llm_model":..,"llm_key":..}`, the same content
+        // the composer's QR scan yields) writes the provider + key into the octos
+        // profile config BEFORE the kernel spawns below, so the first turn uses it.
+        if let Ok(cfg) = std::env::var("MAKEPAD_PROVISION_CONFIG") {
+            match crate::app::login::apply_provision_config_json(&cfg) {
+                Ok(what) => log::info!("provisioned LLM from intent: {what}"),
+                Err(e) => log::warn!("LLM provisioning failed: {e}"),
+            }
+            std::env::remove_var("MAKEPAD_PROVISION_CONFIG");
+        }
 
 
         // Construct the OctosUiAgent up-front so the chat surface has
