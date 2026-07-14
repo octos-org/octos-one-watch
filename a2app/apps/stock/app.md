@@ -3,10 +3,10 @@
 The stock app renders **two** kinds of dark, iOS-Stocks-style FULL-SCREEN card.
 Pick the one that matches the request:
 
-1. **MOVERS LIST** — a top-10 "day gainers" list. Use when the request is about the
-   market's best/top/most-performant stocks, movers, gainers, a watchlist, or "top
-   N stocks" (e.g. "top 10 stocks", "best performing stocks", "today's movers",
-   "涨幅榜"). Reproduce `exemplars/stock-movers.splash`.
+1. **MOVERS LIST** — a top-10 "day gainers" list. (NOTE: the client renders this
+   from a fixed TEMPLATE directly for movers/top/gainers intents — you normally
+   won't be asked to generate it; `exemplars/stock-movers.splash` is the source of
+   truth.) Its rows are tappable and open the detail below.
 2. **DETAIL QUOTE** — the single-ticker quote page. Use when the request names ONE
    specific ticker or company (e.g. "AAPL", "Tesla stock", "英伟达股价"), OR when a
    movers-list row is tapped (the app hands you the tapped ticker). Reproduce
