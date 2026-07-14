@@ -82,7 +82,16 @@ Key pieces:
 > **Latency note.** This serializes: AMA (~7 s) then generation (~30 s). A
 > speculative fan-out (fire all agents immediately, AMA prunes losers) would cut
 > that, but a domain agent can't generate for an out-of-domain intent (a weather
-> agent has no city for "TSLA"), so AMA-first dispatch was chosen.
+> agent has no city for "TSLA"), so AMA-first dispatch was chosen. Because we
+> *don't* speculate, the user never briefly sees the wrong app's output.
+>
+> Three cuts to that latency (roadmap): **(1)** route on the AMA's *first line*
+> instead of waiting for the full turn (the app id is the leading token); **(2)**
+> when an app is already foreground and the input just *refines* the current card
+> ("make it dark", "change to Tokyo"), send it **straight to the foreground agent**
+> and skip the AMA entirely; **(3)** a two-tier AMA — a cheap local rules/embedding
+> classifier for the confident majority ("AAPL", "top news"), falling back to the
+> LLM AMA only on ambiguous input.
 
 ---
 
@@ -167,6 +176,22 @@ resource handle every repaint). The fix:
   helper (keep it in sync when you add a helper).
 
 That's why a card shows `—` for a moment, then fills in with real numbers.
+
+### Two ways to extend — and only one needs a rebuild
+
+There are **two distinct extension axes**, and conflating them causes a card to silently render
+`—`:
+
+| Axis | What it is | Rebuild? |
+|---|---|---|
+| **App package** — `a2app/apps/<domain>/` (spec + exemplars) | Teaches an agent a new card *using capabilities that already exist*. Pure content. | **No.** Regenerate `MEMORY.md`, redeploy. |
+| **Data capability** — a `sys.*` helper in `widgets/src/splash.rs` (framework fork) | A shared, native primitive that fetches a live data source (e.g. `sys.stock`, `sys.stockbar`). | **Yes** — it is native code compiled into the APK. |
+
+So a new card that reuses `sys.weather`/`sys.stock`/`sys.news` is content-only. But a card that
+needs a *new* live data source (or a new shaping of one — e.g. the intraday chart needed a new
+`sys.stockbar` helper) is a **framework change**: add the helper, keep `body_binds_live_data()`
+in sync, rebuild. Think of the `sys.*` helpers as a **shared standard library**, not per-app glue.
+See **[ADDING-AN-APP-CARD.md](ADDING-AN-APP-CARD.md)** for the content path.
 
 ---
 

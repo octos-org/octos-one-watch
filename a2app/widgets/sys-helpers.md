@@ -90,10 +90,13 @@ All weather/air data helpers take the SAME lat/lon as the map helpers.
 Returns the live value for an UPPERCASE ticker (`AAPL`, `TSLA`, `NVDA`, `MSFT`,
 `AMZN`, `GOOGL`, `META`, …). Use directly as `Label` text.
 
-- `symbol`, `name`, `currency`
-- `price`, `prev` (previous close), `open`, `high` (day high), `low` (day low)
+- `symbol`, `name` (company), `exchange`, `currency`
+- `price`, `prev` (previous close), `high` (day high), `low` (day low)
+- `52wh` / `52wl` — 52-week high / low
+- `vol` — volume, formatted (e.g. `41.4M`)
 - `change` — price − previous close, signed, e.g. `+1.99`
 - `changepct` — percent change, signed, e.g. `+0.63%`
+- (`open` exists but Yahoo often omits it → shows `—`; prefer `prev`/`52wh`/`vol`)
 
 ```
 Label{ text: "$" + sys.stock("AAPL", "price") }
@@ -110,3 +113,22 @@ Label{ text: sys.stock("AAPL", "change") + " (" + sys.stock("AAPL", "changepct")
 Label{ width: Fill text: sys.news(0, "title") }
 Label{ text: sys.news(0, "points") + " points · " + sys.news(0, "author") }
 ```
+
+## sys.stockbar("<TICKER>", index, count) — intraday chart bar height
+
+Returns a **number** (a dp height, ~8–158) for one bar of the day's intraday
+price path (Yahoo 5-minute series). Bind it to a bar's `height:` — NOT to text.
+Draw the whole chart as a bottom-aligned `flow: Right` row of `count` thin
+`SolidView`s, bar `i` = `sys.stockbar("<TICKER>", i, count)`. Bars sit flat at 6
+while the fetch loads, then rise into the real shape:
+
+```
+View{ width: Fill height: 188 flow: Right align: Align{y: 1.0} spacing: 2
+    SolidView{ width: Fill height: sys.stockbar("AAPL", 0, 40) draw_bg.color: #30d158cc draw_bg.border_radius: 1.5 }
+    SolidView{ width: Fill height: sys.stockbar("AAPL", 1, 40) draw_bg.color: #30d158cc draw_bg.border_radius: 1.5 }
+    // … repeat i = 0 .. count-1 (count ≈ 40). All bars share ONE fetch.
+}
+```
+
+Use the SAME `count` in every bar and `index` from `0` to `count-1`. Color the
+bars green (#30d158) when the day is up, red (#ff453a) when down.

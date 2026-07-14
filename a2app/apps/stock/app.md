@@ -1,40 +1,56 @@
 # Stock app
 
-A clean, dark, iOS-Stocks-style full-screen quote card for ONE ticker. Use it when
-the request is a stock ticker or a company's share price (e.g. "AAPL", "Tesla
-stock", "英伟达股价"). Reproduce the structure of `exemplars/stock-canonical.splash`.
+A polished, dark, **iOS-Stocks-style FULL-SCREEN quote card** for ONE ticker. Use
+it when the request is a stock ticker or a company's share price (e.g. "AAPL",
+"Tesla stock", "英伟达股价"). Reproduce `exemplars/stock-canonical.splash` closely —
+header, hero price, an **intraday chart with gridlines + a range selector**, then a
+dense stat grid.
 
 ## LIVE DATA — MANDATORY (never hardcode a price)
 
-Every number MUST come from `sys.stock("<TICKER>", "key")` (see
-`widgets/sys-helpers.md`) — you do NOT know the price, so NEVER invent one. Pass the
-real ticker symbol (uppercase): Apple `AAPL`, Tesla `TSLA`, Nvidia `NVDA`, Microsoft
-`MSFT`, Amazon `AMZN`, Google `GOOGL`, Meta `META`. A value shows "—" for a moment
-while it loads, then the card auto-refreshes. The ONLY things you choose are labels
-and colors.
+Every number MUST come from `sys.stock("<TICKER>", "key")` and the chart from
+`sys.stockbar("<TICKER>", i, count)` (see `widgets/sys-helpers.md`) — NEVER invent
+one. Pass the real UPPERCASE ticker: Apple `AAPL`, Tesla `TSLA`, Nvidia `NVDA`,
+Microsoft `MSFT`, Amazon `AMZN`, Google `GOOGL`, Meta `META`. Values show `—` (or a
+flat chart) briefly, then auto-refresh. You only choose labels and colors.
 
-Keys: `symbol`, `name`, `price`, `change` (signed, e.g. "+1.99"), `changepct`
-(signed %, e.g. "+0.63%"), `prev`, `open`, `high`, `low`, `currency`.
+Keys: `symbol`, `name`, `exchange`, `currency`, `price`, `prev`, `high`, `low`,
+`52wh`, `52wl`, `vol`, `change` (signed), `changepct` (signed %). **Do NOT use
+`open`** — Yahoo omits it and it renders as a `$—` that looks broken.
 
-## Structure, top to bottom
+## Structure (iOS Stocks), top to bottom
 
-Root = a `flow: Overlay` SolidView (dark `draw_bg.color`, e.g. #0b0f17) with a
-`GradientYView` filling it (subtle dark-blue gradient), then a `flow: Down` inner
-column carrying ALL padding `Inset{left: 24 top: 54 right: 24 bottom: 26}` (the
-`top: 54` clears the status bar — NEVER a small top, the ticker gets jammed under
-the clock):
+Root = a `flow: Overlay` SolidView with a **fixed `height: 858` so it FILLS the
+screen — never leave an empty void** (do NOT use `height: Fit`), a `GradientYView`
+fill (muted `#0a0e14 → #0e1826`), then a `flow: Down height: Fill` column with
+padding `Inset{left: 24 top: 54 right: 24 bottom: 126}`:
 
-1. **Header** — `sys.stock(SYM,"symbol")` (font 34) with `sys.stock(SYM,"name")`
-   below it (font 15, #ffffff99).
-2. **Hero price** — `"$" + sys.stock(SYM,"price")` alone on its line (font 56,
-   `margin: Inset{top: 10 bottom: 0}`).
-3. **Change row** — a `flow: Right` row: `sys.stock(SYM,"change")` then
-   `"(" + sys.stock(SYM,"changepct") + ")"` (accent color — use #5ac8fa, a neutral
-   accent, since up/down can't be colored at render time; the +/- sign shows
-   direction) then `sys.stock(SYM,"currency")` (dim, font 14).
-4. **STAT GRID** — a `flow: Down` of TWO `flow: Right` rows, each two frosted tiles
-   (RoundedView, `draw_bg.color #ffffff12`, radius 16, `width: Fill`), each stacking
-   an UPPERCASE caption (font 11, #ffffff99) over a value (font 20): PREV CLOSE =
-   `prev`, OPEN = `open`, DAY HIGH = `high`, DAY LOW = `low`.
+1. **Header** — `symbol` (font 34); below it `name + "  ·  " + exchange + "  ·  " +
+   currency` (font 13, dim #ffffff8c). Folding currency in here avoids an orphan
+   "USD".
+2. **Hero price** — `"$" + price` (font 48, `margin: Inset{top: 10}`).
+3. **Change row** (`flow: Right`, font 17): `change + "  (" + changepct + ")"` in an
+   accent color (green #30d158 up / red #ff453a down), then a dim `"Today"`.
+4. **INTRADAY CHART** — a `View{ height: 150 flow: Overlay }` with, BEHIND, three
+   faint full-width gridlines (`SolidView height: 1`, `#ffffff17`/`#ffffff0d`/
+   `#ffffff17`, separated by `Filler`s); and, IN FRONT, a `flow: Right` holding the
+   bars (`View{ width: Fill height: Fill flow: Right align: Align{y: 1.0} spacing: 2
+   }` of ~40 `SolidView{ height: sys.stockbar("<TICKER>", i, 40) }`, green up / red
+   down) and a narrow `flow: Down` price scale labelling `"H $"+high` (top) and
+   `"L $"+low` (bottom). The gridlines + H/L labels give the chart real axes.
+5. **Time axis** — a `flow: Right` row `"09:30" … "12:45" … "16:00"` (font 10, dim,
+   `Filler`s between).
+6. **RANGE SELECTOR** — a `flow: Right` row of pill chips `1D 1W 1M 6M 1Y`, the
+   FIRST active (bg `#30d15826`, text #30d158), the rest transparent + dim text.
+   Put a `Filler{}` BETWEEN each chip so the row spreads edge-to-edge and the last
+   chip is never truncated.
+7. **STAT GRID** — a `height: Fill flow: Down` block: a thin divider then THREE rows,
+   **each `height: Fill`** so they split the remaining space exactly (no dead zone,
+   no overflow). Each row is `flow: Right align: Align{y: 0.5} spacing: 20` with TWO
+   cells; each cell is `flow: Down` stacking an UPPERCASE caption (font 11, #ffffff8c)
+   over a value (font 20). Stats: **PREV CLOSE**=`"$"+prev`, **VOLUME**=`vol`,
+   **DAY HIGH**=`"$"+high` (green), **DAY LOW**=`"$"+low` (red), **52W HIGH**=`"$"+52wh`,
+   **52W LOW**=`"$"+52wl`. Keep ONE value per cell — never pack `low+" – "+high`
+   (it overflows).
 
-Widgets: GradientYView, SolidView, RoundedView, View, Label, Filler — see `widgets/`.
+Widgets: GradientYView, SolidView, RoundedView, View, Label, Filler.
