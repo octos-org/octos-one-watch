@@ -25,6 +25,7 @@ octos-one/
     ARCHITECTURE.md        How it all fits together (read this first).
     ADDING-AN-APP-CARD.md  Add a new app type end-to-end (e.g. crypto, sports).
     BUILDING-ANDROID.md    Build the APK + deploy + run on a device.
+    PROVISIONING-LLM.md    Bring-your-own-key: encode an LLM config as a QR to scan.
 ```
 
 ## Dependent projects (referenced, not vendored)
