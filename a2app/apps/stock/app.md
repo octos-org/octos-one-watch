@@ -1,56 +1,73 @@
 # Stock app
 
-A polished, dark, **iOS-Stocks-style FULL-SCREEN quote card** for ONE ticker. Use
-it when the request is a stock ticker or a company's share price (e.g. "AAPL",
-"Tesla stock", "英伟达股价"). Reproduce `exemplars/stock-canonical.splash` closely —
-header, hero price, an **intraday chart with gridlines + a range selector**, then a
-dense stat grid.
+The stock app renders **two** kinds of dark, iOS-Stocks-style FULL-SCREEN card.
+Pick the one that matches the request:
 
-## LIVE DATA — MANDATORY (never hardcode a price)
+1. **MOVERS LIST** — a top-10 "day gainers" list. Use when the request is about the
+   market's best/top/most-performant stocks, movers, gainers, a watchlist, or "top
+   N stocks" (e.g. "top 10 stocks", "best performing stocks", "today's movers",
+   "涨幅榜"). Reproduce `exemplars/stock-movers.splash`.
+2. **DETAIL QUOTE** — the single-ticker quote page. Use when the request names ONE
+   specific ticker or company (e.g. "AAPL", "Tesla stock", "英伟达股价"), OR when a
+   movers-list row is tapped (the app hands you the tapped ticker). Reproduce
+   `exemplars/stock-canonical.splash`.
 
-Every number MUST come from `sys.stock("<TICKER>", "key")` and the chart from
-`sys.stockbar("<TICKER>", i, count)` (see `widgets/sys-helpers.md`) — NEVER invent
-one. Pass the real UPPERCASE ticker: Apple `AAPL`, Tesla `TSLA`, Nvidia `NVDA`,
-Microsoft `MSFT`, Amazon `AMZN`, Google `GOOGL`, Meta `META`. Values show `—` (or a
-flat chart) briefly, then auto-refresh. You only choose labels and colors.
+## LIVE DATA — MANDATORY (never hardcode a number)
 
-Keys: `symbol`, `name`, `exchange`, `currency`, `price`, `prev`, `high`, `low`,
-`52wh`, `52wl`, `vol`, `change` (signed), `changepct` (signed %). **Do NOT use
-`open`** — Yahoo omits it and it renders as a `$—` that looks broken.
+- MOVERS LIST: every field is `sys.movers(i, "field")` — `i` = 0..9, 0 = the biggest
+  % gainer today. Fields: `symbol`, `name`, `price`, `change` (signed), `changepct`
+  (signed %), `high`, `low`, `marketcap`, `vol`, `52wh`, `52wl`, `currency`,
+  `exchange`. ONE fetch serves all rows.
+- DETAIL QUOTE: every number is `sys.stock("<TICKER>", "key")` and the chart is
+  `sys.stockbar("<TICKER>", i, count, maxh)`. Keys: `symbol`, `name`, `exchange`,
+  `currency`, `price`, `prev`, `high`, `low`, `52wh`, `52wl`, `vol`, `change`,
+  `changepct`. **Do NOT use `open`** (Yahoo often omits it → `$—`).
 
-## Structure (iOS Stocks), top to bottom
+Values show `—` briefly, then auto-refresh. You only choose labels and colors.
 
-Root = a `flow: Overlay` SolidView with a **fixed `height: 858` so it FILLS the
-screen — never leave an empty void** (do NOT use `height: Fit`), a `GradientYView`
-fill (muted `#0a0e14 → #0e1826`), then a `flow: Down height: Fill` column with
-padding `Inset{left: 24 top: 54 right: 24 bottom: 126}`:
+## MOVERS LIST structure (top to bottom) — `exemplars/stock-movers.splash`
 
-1. **Header** — `symbol` (font 34); below it `name + "  ·  " + exchange + "  ·  " +
-   currency` (font 13, dim #ffffff8c). Folding currency in here avoids an orphan
-   "USD".
-2. **Hero price** — `"$" + price` (font 48, `margin: Inset{top: 10}`).
-3. **Change row** (`flow: Right`, font 17): `change + "  (" + changepct + ")"` in an
-   accent color (green #30d158 up / red #ff453a down), then a dim `"Today"`.
-4. **INTRADAY CHART** — a `View{ height: 150 flow: Overlay }` with, BEHIND, three
-   faint full-width gridlines (`SolidView height: 1`, `#ffffff17`/`#ffffff0d`/
-   `#ffffff17`, separated by `Filler`s); and, IN FRONT, a `flow: Right` holding the
-   bars (`View{ width: Fill height: Fill flow: Right align: Align{y: 1.0} spacing: 2
-   }` of ~40 `SolidView{ height: sys.stockbar("<TICKER>", i, 40) }`, green up / red
-   down) and a narrow `flow: Down` price scale labelling `"H $"+high` (top) and
-   `"L $"+low` (bottom). The gridlines + H/L labels give the chart real axes.
-5. **Time axis** — a `flow: Right` row `"09:30" … "12:45" … "16:00"` (font 10, dim,
-   `Filler`s between).
-6. **RANGE SELECTOR** — a `flow: Right` row of pill chips `1D 1W 1M 6M 1Y`, the
-   FIRST active (bg `#30d15826`, text #30d158), the rest transparent + dim text.
-   Put a `Filler{}` BETWEEN each chip so the row spreads edge-to-edge and the last
-   chip is never truncated.
-7. **STAT GRID** — a `height: Fill flow: Down` block: a thin divider then THREE rows,
-   **each `height: Fill`** so they split the remaining space exactly (no dead zone,
-   no overflow). Each row is `flow: Right align: Align{y: 0.5} spacing: 20` with TWO
-   cells; each cell is `flow: Down` stacking an UPPERCASE caption (font 11, #ffffff8c)
-   over a value (font 20). Stats: **PREV CLOSE**=`"$"+prev`, **VOLUME**=`vol`,
-   **DAY HIGH**=`"$"+high` (green), **DAY LOW**=`"$"+low` (red), **52W HIGH**=`"$"+52wh`,
-   **52W LOW**=`"$"+52wl`. Keep ONE value per cell — never pack `low+" – "+high`
-   (it overflows).
+Root = a `flow: Overlay` SolidView `height: 858` + `GradientYView` fill, then a
+`flow: Down` column, padding `Inset{left: 22 top: 54 right: 22 bottom: 96}`:
 
-Widgets: GradientYView, SolidView, RoundedView, View, Label, Filler.
+1. **Masthead** — a small `"TODAY · TOP GAINERS"` kicker (font 11, accent #30d158)
+   over `"Movers"` (font 30). A thin divider under it.
+2. **10 TAPPABLE rows**, one per `i = 0..9`, each a **fixed-height** (60)
+   `flow: Overlay` holding TWO children:
+   - the **visual** row (`flow: Right align: Align{y: 0.5}`): a rank `Label{width:26}`
+     (dim), a `flow: Down width: Fill` column with `sys.movers(i,"symbol")` (font 18)
+     over `sys.movers(i,"name")` (font 12, dim), then a right `flow: Down` column with
+     `"$"+sys.movers(i,"price")` (font 17) over a small green pill (RoundedView,
+     `#30d15826`) showing `sys.movers(i,"changepct")`.
+   - a **transparent tap target** LAST (so it sits on top): `Button{ width: Fill
+     height: Fill draw_bg.color: #00000000 text: "" on_click: || agent.notify("open",
+     {ticker: sys.movers(i, "symbol")}) }`. This is what makes the whole row tappable
+     and opens that ticker's detail card — **do NOT omit it, and keep the `ticker`
+     payload keyed to the SAME `i`**. A hairline `SolidView` divider sits between rows.
+
+Gainers are all positive → the pill is green. Fixed row height (not `Fit`) is
+required so the `Fill` tap-Button resolves inside the `Overlay`.
+
+## DETAIL QUOTE structure (top to bottom) — `exemplars/stock-canonical.splash`
+
+Root = `flow: Overlay` SolidView `height: 858` + `GradientYView`, then `flow: Down`,
+padding `Inset{left: 22 top: 50 right: 22 bottom: 118}`:
+
+1. **Header** — `symbol` (font 32); below it `name + "  ·  " + exchange + "  ·  " +
+   currency` (font 13, dim).
+2. **Hero price** — `"$" + price` (font 42); **change row** `change + "  (" +
+   changepct + ")"` (accent green up / red down) + a dim `"Today"`.
+3. **INTRADAY CHART** — `View{ height: 116 flow: Right }`: a LEFT y-axis
+   (`width: 58` `flow: Down`: `"$"+high` top, `"$"+low` bottom) + a plot
+   (`flow: Overlay`) with three faint full-width gridlines BEHIND and, in FRONT, the
+   area = `flow: Right align: Align{y: 1.0}` of ~68 `SolidView{ height:
+   sys.stockbar("<TICKER>", i, 68, 108) draw_bg.color: #34c759d9 }` (translucent so
+   gridlines show through). A time axis `09:30 … 12:45 … 16:00` and a range-selector
+   row of pill chips `1D 1W 1M 6M 1Y` (first active, spread with `Filler`s).
+4. **STAT GRID** — one frosted inset RoundedView (`#ffffff0a`, radius 22) with THREE
+   `height: Fill` rows of two `flow: Down` cells (caption font 11 dim over value font
+   20) split by hairline dividers: PREV CLOSE, VOLUME, DAY HIGH, DAY LOW, 52W HIGH,
+   52W LOW. All money values already come 2-decimal from `sys.stock`.
+
+Muted gradient (`#0a0e14 → #0e1826`). Widgets: GradientYView, SolidView, RoundedView,
+View, Label, Filler, Button.

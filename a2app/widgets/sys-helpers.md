@@ -132,3 +132,29 @@ View{ width: Fill height: 188 flow: Right align: Align{y: 1.0} spacing: 2
 
 Use the SAME `count` in every bar and `index` from `0` to `count-1`. Color the
 bars green (#30d158) when the day is up, red (#ff453a) when down.
+
+## sys.movers(index, "field") — LIVE top gainers (Yahoo day_gainers, no auth)
+
+`index` 0 = the biggest % gainer today, up to 9. ONE fetch serves all rows. Use
+directly as `Label` text. Fields (case-insensitive): `symbol`, `name`, `price`,
+`change` (signed), `changepct` (signed %), `high`, `low`, `prev`, `52wh`, `52wl`,
+`vol`, `marketcap` (e.g. `1.31T`), `currency`, `exchange`.
+
+```
+Label{ text: sys.movers(0, "symbol") }
+Label{ text: "$" + sys.movers(0, "price") }
+Label{ text: sys.movers(0, "changepct") }        // e.g. "+21.12%"
+```
+
+Make each list row TAPPABLE to open that ticker's detail card: put a transparent
+`Button` on top of the row (in a `flow: Overlay`) whose click fires `agent.notify`
+with the row's ticker:
+
+```
+Button{ width: Fill height: Fill draw_bg.color: #00000000 text: ""
+    on_click: || agent.notify("open", {ticker: sys.movers(0, "symbol")}) }
+```
+
+The app catches `notify("open", {ticker})` and generates the DETAIL card for that
+ticker. The row container must have a FIXED height (not `Fit`) so the `Fill` Button
+resolves inside the `Overlay`.

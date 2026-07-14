@@ -28,6 +28,7 @@ FILES = [
     ("apps/weather/app.md", ""),
     ("apps/weather/exemplars/weather-canonical.splash", " (known-good reference)"),
     ("apps/stock/app.md", ""),
+    ("apps/stock/exemplars/stock-movers.splash", " (known-good reference)"),
     ("apps/stock/exemplars/stock-canonical.splash", " (known-good reference)"),
     ("apps/news/app.md", ""),
     ("apps/news/exemplars/news-canonical.splash", " (known-good reference)"),
