@@ -40,6 +40,13 @@ const OCTOS_PLACEHOLDER_SYSTEM_PROMPT: &str = "";
 /// client system-prompt field.
 const SPLASH_MANUAL: &str = include_str!("../../splash.md");
 
+/// The movers / top-gainers card is a fixed data-list TEMPLATE (10 rows × a
+/// 14-bar sparkline). It is rendered DIRECTLY rather than LLM-generated — an LLM
+/// can't faithfully reproduce ~140 `sys.stockbar` bars (it invents broken rows),
+/// but this template + live `sys.movers`/`sys.stockbar` data renders it exactly.
+/// Per-ticker DETAIL cards stay LLM-generated. See `route_to_app`/`is_movers_intent`.
+const MOVERS_TEMPLATE: &str = include_str!("movers_template.splash");
+
 /// Build the message actually sent to the LLM in Splash mode: instructions +
 /// the Splash manual + the user's request. The chat bubble still shows only
 /// the user's original `request` text.
@@ -55,7 +62,7 @@ const SPLASH_MANUAL: &str = include_str!("../../splash.md");
 /// takes the screen; the AMA's job is to prove the routing brain runs
 /// concurrently (and, later, to prune non-relevant app agents once intent is
 /// clear). The AMA renders NOTHING — its output is routing metadata.
-const AMA_SYSTEM_PROMPT: &str = "You are the AMA (Activity Management Agent) of an agent OS — a ROUTER, not an app. IGNORE any 'APP AGENT MEMORY' / card-generation manual in your context: it is for the app agents, NOT for you. Do NOT generate any UI, `runsplash`, or card. Do NOT fetch weather or call any tool. Your ONLY job: read the user message and decide which active app agent's domain it belongs to. Active app agents and their domains: [weather = weather/forecast/climate/air-quality for a place; stock = a stock ticker or company's share price/quote; news = top headlines / what's happening]. A BARE place name (e.g. `Shanghai`, `上海`, `Paris weather`) → `weather`. A BARE ticker or company (e.g. `AAPL`, `Tesla stock`, `英伟达`) → `stock`. `top news`, `头条`, `what's happening` → `news`. Never call a clear single-domain request ambiguous. Reply with EXACTLY ONE short line: the chosen app id, then a brief reason — e.g. `stock — user asked for AAPL's price`. Reply `none` ONLY if the message clearly matches no listed domain. Be terse; output nothing else.";
+const AMA_SYSTEM_PROMPT: &str = "You are the AMA (Activity Management Agent) of an agent OS — a ROUTER, not an app. IGNORE any 'APP AGENT MEMORY' / card-generation manual in your context: it is for the app agents, NOT for you. Do NOT generate any UI, `runsplash`, or card. Do NOT fetch weather or call any tool. Your ONLY job: read the user message and decide which active app agent's domain it belongs to. Active app agents and their domains: [weather = weather/forecast/climate/air-quality for a place; stock = a stock ticker or a company's share price/quote, OR the stock MARKET as a whole: top / best / most-performant / gainers / movers / most-active stocks (a ranked list); news = current-events headlines / journalism / what's happening in the world]. A BARE place name (e.g. `Shanghai`, `上海`, `Paris weather`) → `weather`. A BARE ticker or company (e.g. `AAPL`, `Tesla stock`, `英伟达`) → `stock`. `top stocks`, `top 10 stocks`, `best performing stocks`, `biggest gainers`, `market movers`, `涨幅榜` → `stock`. `top news`, `top headlines`, `头条`, `what's happening` → `news`. IMPORTANT tie-breaker: the words 'top' / 'best' / 'most' do NOT by themselves mean news — if the message mentions stocks, shares, tickers, gainers, movers, or the market, choose `stock`; only route to `news` when it is about headlines / current events. Never call a clear single-domain request ambiguous. Reply with EXACTLY ONE short line: the chosen app id, then a brief reason — e.g. `stock — user asked for the top gainers`. Reply `none` ONLY if the message clearly matches no listed domain. Be terse; output nothing else.";
 
 const APP_SPLASH_ROUTER: &str = "You ARE the app agent and you OWN the entire card generation. Your COMPLETE memory (the app framework procedure, the widget helpers, the app specs, and a known-good exemplar per app) is ALREADY IN YOUR CONTEXT — it was injected as your memory. USE it. Do NOT read or fetch any files. Do NOT use the spawn tool. Do NOT delegate. Do NOT summarize.\n\nFIRST decide which app type the request is and follow THAT app's spec + exemplar: weather (weather/forecast/air-quality for a place), stock (a ticker/company quote), or news (top headlines). Bind LIVE data with the sys.* helpers the spec names (sys.weather / sys.stock / sys.news) — NEVER hardcode or invent numbers/headlines.\n\nWrite the card YOURSELF and stream it as your answer: emit EXACTLY ONE ```runsplash fenced block as your ENTIRE final answer — the COMPLETE card DSL, with ALL mandatory sections the chosen app's spec lists (e.g. for weather: current block, 7-day forecast, BOTH map panes each as its own full-width row — satellite 卫星云图 then air-quality 空气质量图, NEVER side by side — and the detail grid). No prose before or after the block. NEVER truncate — emit the whole card in one block.";
 
@@ -69,6 +76,20 @@ generate a {domain} card: follow the apps/{domain}/app.md spec and its exemplar 
 your memory, and bind live data with the matching sys.* helper. Do NOT generate any \
 other app type.\n\nUser request: {intent}"
     )
+}
+
+/// True if a stock intent asks for the top-gainers LIST (render MOVERS_TEMPLATE
+/// directly) vs a single ticker's detail (LLM-generated). A movers-row tap sets
+/// the intent to the tapped SYMBOL (e.g. "SKHY"), which has no keyword → detail.
+fn is_movers_intent(intent: &str) -> bool {
+    let s = intent.to_ascii_lowercase();
+    [
+        "top ", "top10", "top 10", "best", "gainer", "mover", "most ", "performant",
+        "biggest", "watchlist", "leaderboard", "market list", "stock list", "涨幅",
+        "领涨", "表现最",
+    ]
+    .iter()
+    .any(|k| s.contains(k))
 }
 
 fn app_splash_prompt(request: &str) -> String {
@@ -3508,6 +3529,16 @@ impl App {
         self.foreground = idx;
         // New foreground → drop ChatList's render cache so the card re-parses.
         CHAT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // A movers/top-gainers request is a fixed data-list TEMPLATE (10 rows ×
+        // a 14-bar sparkline). Render it DIRECTLY with live sys.movers/sys.stockbar
+        // data — the LLM can't faithfully reproduce ~140 bars. Per-ticker DETAIL
+        // requests (incl. a row tap, whose intent is the bare symbol) fall through
+        // to the agent below.
+        if app_id == "stock" && is_movers_intent(&intent) {
+            self.render_movers_template(cx);
+            log::info!("stock: rendered movers TEMPLATE directly (no LLM) | intent {intent:?}");
+            return;
+        }
         // Dispatch the domain-specialised generation prompt to the chosen agent.
         let sid = self.apps[idx].session_id;
         let prompt = app_splash_router_for(app_id, &intent);
@@ -3515,6 +3546,24 @@ impl App {
         self.apps[idx].current_prompt = Some(pid);
         self.sync_app_tabs(cx);
         self.ui.redraw(cx);
+    }
+
+    /// Inject the movers-list TEMPLATE as the current card (rendered directly with
+    /// live `sys.movers` data — not LLM-generated). Used for movers intents
+    /// (`route_to_app`) and for a detail card's "back" button (see the Notify
+    /// handler), so both go to the same reliable, tappable list.
+    fn render_movers_template(&mut self, cx: &mut Cx) {
+        if let Ok(mut data) = CHAT_DATA.write() {
+            data.messages.push(ChatMessage {
+                role: ChatRole::Assistant,
+                text: format!("```runsplash\n{}\n```", MOVERS_TEMPLATE.trim()),
+            });
+            data.is_streaming = false;
+        }
+        CHAT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.update_empty_state_visibility(cx);
+        self.sync_app_tabs(cx);
+        cx.redraw_all();
     }
 
     /// Construct an `OctosUiAgent` from the current process environment.
@@ -5036,6 +5085,35 @@ impl MatchEvent for App {
                 };
                 let pj: serde_json::Value =
                     serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
+                // A movers-list row tap → open the tapped ticker's DETAIL card.
+                // Dispatch straight to the stock app-agent (a known ticker needs no
+                // AMA round-trip): hold the ticker as the intent, then activate.
+                if ev.starts_with("open") || ev.starts_with("detail") || ev.starts_with("ticker") {
+                    if let Some(t) = pj.get("ticker").and_then(|v| v.as_str()) {
+                        let t = t.trim().to_ascii_uppercase();
+                        if !t.is_empty() {
+                            if let Ok(mut d) = CHAT_DATA.write() {
+                                d.is_streaming = true;
+                            }
+                            self.pending_intent = Some(t);
+                            self.route_to_app(cx, "stock", "movers row tap");
+                        }
+                    }
+                    continue;
+                }
+                // A detail card's back button → return to the movers list.
+                if ev.starts_with("back") {
+                    if let Some(idx) = self
+                        .apps
+                        .iter()
+                        .position(|a| a.domain.as_deref() == Some("stock"))
+                    {
+                        self.foreground = idx;
+                    }
+                    self.render_movers_template(cx);
+                    log::info!("stock: back → movers list");
+                    continue;
+                }
                 let key = pj.get("key").and_then(|v| v.as_str()).unwrap_or("count").to_owned();
                 let value = pj.get("value").and_then(|v| v.as_str()).map(str::to_owned);
                 let mut changed = false;
@@ -5178,6 +5256,29 @@ impl MatchEvent for App {
                 let n = self.apps.len();
                 if n > 1 {
                     self.switch_to_app(cx, (self.foreground + 1) % n);
+                }
+            }
+            // Composer QR scan → provision the LLM from the decoded JSON payload,
+            // then respawn the kernel so the new provider/key takes effect.
+            if let Some(scan) = action
+                .downcast_ref::<makepad_widgets::makepad_platform::event::AndroidQrScanned>()
+            {
+                let json = scan.json.clone();
+                match crate::app::login::apply_provision_config_json(&json) {
+                    Ok(what) => {
+                        log::info!("QR provisioned LLM: {what}");
+                        self.connect_transport(cx); // respawn kernel → reads new _main.json
+                        self.clear_chat(cx);
+                        self.ui
+                            .label(cx, ids!(status_label))
+                            .set_text(cx, &format!("LLM configured · {what}"));
+                    }
+                    Err(e) => {
+                        log::warn!("QR provision failed: {e}");
+                        self.ui
+                            .label(cx, ids!(status_label))
+                            .set_text(cx, &format!("QR error: {e}"));
+                    }
                 }
             }
         }
