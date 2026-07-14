@@ -21,14 +21,15 @@ written into the on-device octos profile config and read by the embedded kernel.
 1. **Encode** the config into a QR on a trusted machine:
    ```bash
    python3 scripts/llm_qr.py --family zai --model glm-5.2 --key sk-XXXX
-   # prints a provisioning URL + an ASCII QR (pip install 'qrcode[pil]' for PNG/ASCII);
+   # prints the JSON payload + an ASCII QR (pip install 'qrcode[pil]' for PNG/ASCII);
    # --out llm.png writes an image. Optional --base-url/--profile/--token add server auth.
    ```
-   The QR encodes a single URL:
+   The QR payload is a single self-contained JSON object (no URL) — **all the
+   info is in the QR**:
+   ```json
+   {"llm_family":"zai","llm_model":"glm-5.2","llm_key":"sk-XXXX"}
    ```
-   octos://provision?llm_family=zai&llm_model=glm-5.2&llm_key=sk-XXXX
-   ```
-2. **Scan** it from the app's composer (the QR button) → the app parses the URL,
+2. **Scan** it from the app's composer (the QR button) → the app parses the JSON,
    writes `llm_family`/`llm_model` into `config.llm` and `llm_key` into
    `config.env_vars.<PROVIDER>_API_KEY`, and the next turn uses it.
 
@@ -37,11 +38,11 @@ written into the on-device octos profile config and read by the embedded kernel.
 
 ## Provisioning without the camera (dev / headless)
 
-The same URL can be applied via the launch intent (no scanning), which is how the
-flow is tested:
+The same JSON payload can be applied via the launch intent (no scanning), which is
+how the flow is tested:
 ```bash
 adb shell am start -S -n dev.makepad.octos_app/.MakepadApp \
-    --es makepad.PROVISION_URL 'octos://provision?llm_family=zai&llm_model=glm-5.2&llm_key=sk-XXXX'
+    --es makepad.PROVISION_CONFIG '{"llm_family":"zai","llm_model":"glm-5.2","llm_key":"sk-XXXX"}'
 ```
 Server auth (`base_url|profile|token`) still has its own `makepad.APP_CONFIG`
 entry point — see [BUILDING-ANDROID.md](BUILDING-ANDROID.md).
