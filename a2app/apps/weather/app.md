@@ -1,0 +1,129 @@
+# Weather app
+
+The DEFAULT for weather is an IMMERSIVE FULL-SCREEN iOS WEATHER CARD: a REAL photo
+of the city fills the whole screen; the CURRENT conditions sit at the top, a
+translucent 7-DAY FORECAST panel sits directly below them, then TWO FULL-WIDTH MAP
+PANES stacked vertically — first a LIVE 卫星云图 (real satellite cloud imagery),
+then a LIVE 空气质量图 (air-quality map) — each on its own row so the maps read
+large, then a frosted 6-TILE DETAIL GRID (air quality, UV, sunrise, sunset,
+humidity, wind) — like a refined iOS Weather app.
+
+Reproduce this EXACT structure (a full-screen Overlay: photo, dark scrim, then a
+Down column = current block, the 7-day forecast, the two map panes, then the detail
+grid). See the known-good reference card at `exemplars/weather-canonical.splash`.
+
+## LIVE DATA — MANDATORY (never hardcode weather numbers)
+
+Every weather/air number in this card MUST come from a live data helper — you do
+NOT know the real weather, so you must NEVER type an invented number. Use
+`sys.weather(LAT, LON, "path")` and `sys.airquality(LAT, LON, "path")` (see
+`widgets/sys-helpers.md`) as the `text` of each value `Label`, concatenating the
+unit string, e.g. `text: sys.weather(LAT, LON, "current.temperature_2m") + "°"`.
+Pass the city's REAL decimal lat/lon (the SAME LAT, LON used by the map helpers).
+A value shows "—" for a moment while it loads, then the card auto-refreshes with
+the real reading. The ONLY things you choose yourself are labels, the photo query,
+the `WeatherIcon`/emoji condition, and the color categories.
+
+## Background-Image rules
+
+- The background Image MUST use `fit: ImageFit.CropToFill` (fills the whole box,
+  cropping overflow — a true edge-to-edge photo). NEVER use Smallest/Biggest/
+  Vertical/Horizontal on it: those size the photo to its own aspect and leave bare
+  letterbox bands.
+- The ROOT Overlay container and the Image MUST have NO `padding` and NO `margin` —
+  an Overlay child's Fill height = parent height MINUS parent padding MINUS its own
+  margin, so ANY inset there SHRINKS the photo and exposes bare background. Put ALL
+  insets (the top status-bar clearance, side and bottom padding) ONLY on the inner
+  `flow: Down` column, exactly as in the template. The inner column MUST use
+  `padding: Inset{left: 22 top: 54 right: 22 bottom: 8}` — the `top: 54` clears the
+  phone's status bar so the CITY NAME sits comfortably below it (NEVER use a small
+  top like 6 — the city name ends up jammed under the status bar / clock).
+- Photo: `sys.photo("<city> <scene/weather>")` matching the actual conditions.
+
+## Structure, top to bottom
+
+**(1) CURRENT block**
+- City (font 30).
+- The hero temperature ALONE on its line (font 60, `margin: Inset{top: 6 bottom: 0}`
+  so its tall glyphs are not clipped) — its text is LIVE:
+  `text: sys.weather(LAT, LON, "current.temperature_2m") + "°"`.
+- A `flow: Right` row (height 60, align y 0.5, spacing 10) holding an ANIMATED
+  `WeatherIcon{ draw_bg.cond: <N> width: 60 height: 60 }` followed by the condition
+  `Label` (font 20). `WeatherIcon` is a live shader-animated weather glyph (rays
+  rotate, rain/snow falls, wind/fog drifts, lightning flashes); pick `draw_bg.cond`
+  by CURRENT condition: 0 clear/sunny, 1 partly cloudy, 2 cloudy/overcast, 3
+  rain/drizzle, 4 thunderstorm, 5 snow, 6 wind, 7 fog/haze/mist. (See
+  `widgets/weather-icon.md`.)
+- Then an `H:__°  L:__°  Feels __°` line (font 15, #ffffffcc), every number LIVE:
+  `"H:" + sys.weather(LAT, LON, "daily.temperature_2m_max.0") + "°  L:" +
+  sys.weather(LAT, LON, "daily.temperature_2m_min.0") + "°  Feels " +
+  sys.weather(LAT, LON, "current.apparent_temperature") + "°"`.
+
+**(2) 7-DAY FORECAST** — directly under the current block (this comes BEFORE the
+detail grid). A translucent RoundedView (draw_bg.color #00000055, border_radius 20)
+with ONE SolidView row per day, EACH ROW a FIXED `height: 40` (roomy iOS-style rows;
+the fixed height still clips color-emoji line-box inflation so rows stay uniform):
+day name width 92 (font 14), a weather EMOJI width 34 (☀️ sunny, ⛅ partly, ☁️
+cloudy, 🌧️ rain, ⛈️ storm, ❄️ snow), a Filler, then lo° dim (#ffffff88) and hi°
+white width 48, all font 14. Give SEVEN rows: Today, then the next six days by name.
+The lo°/hi° of row N are LIVE: `sys.weather(LAT, LON, "daily.temperature_2m_min.N")`
+and `sys.weather(LAT, LON, "daily.temperature_2m_max.N")` for N = 0 (Today) … 6.
+(The day NAMES and EMOJI you choose; the two temps must be sys.weather calls.)
+
+**(3) TWO FULL-WIDTH MAP PANES** — stacked vertically (NOT side by side — each pane
+is its own row so the maps read large), each a `width: Fill` RoundedView
+(draw_bg.color #000000aa, border_radius 16, flow: Down):
+- The FIRST pane is the 卫星云图 — REAL satellite cloud imagery:
+  `Image{ src: http_resource(sys.satellite(LAT, LON)) fit: ImageFit.CropToFill width: Fill height: 190 }`
+  (sys.satellite(LAT, LON) takes the city's real lat/lon, SAME as the air map below)
+  + a `卫星云图` caption (font 11, #ffffffcc).
+- The SECOND pane is the LIVE 空气质量图 air-quality map — a `height: 190 flow:
+  Overlay` View stacking
+  `Image{ src: http_resource(sys.basemap(LAT, LON)) fit: ImageFit.CropToFill width: Fill height: 190 }`
+  UNDER
+  `Image{ src: http_resource(sys.airmap(LAT, LON)) fit: ImageFit.CropToFill width: Fill height: 190 }`
+  (fixed height, NOT Fill — Fill inside an Overlay wrongly resolves to the whole
+  card) — pass the CITY's real decimal LAT, LON (e.g. Tokyo 35.68, 139.65; both maps
+  take the SAME lat/lon) — + a `空气质量图` caption (font 11, #ffffffcc). (See
+  `widgets/sys-helpers.md`.)
+
+**(4) DETAIL GRID** — below the map panes. A `flow: Down` View of THREE `flow: Right`
+rows, each holding TWO equal frosted tiles (`width: Fill`). Every tile is a
+RoundedView (draw_bg.color #ffffff1f, border_radius 18) stacking an UPPERCASE
+caption (font 11, #ffffff99), a big value (font 20), and a sub-line (font 12,
+#ffffffcc). The SIX tiles in order:
+Every value here is LIVE (sys.airquality / sys.weather); only captions, sub-lines
+and the color category are yours:
+- AIR QUALITY — value = `sys.airquality(LAT, LON, "current.us_aqi")` (the AQI
+  NUMBER); set its `draw_text.color` by category — Good #32d74b, Moderate #ffd60a,
+  Unhealthy #ff9f0a, Very Unhealthy #ff453a — and put the category word in the sub.
+- UV INDEX — `sys.weather(LAT, LON, "daily.uv_index_max.0")`; sub Low/Moderate/
+  High/Very High.
+- SUNRISE — `sys.weather(LAT, LON, "daily.sunrise.0")` (already "HH:MM"); sub `🌅 Dawn`.
+- SUNSET — `sys.weather(LAT, LON, "daily.sunset.0")` (already "HH:MM"); sub `🌇 Dusk`.
+- HUMIDITY — `sys.weather(LAT, LON, "current.relative_humidity_2m") + "%"`; sub free.
+- WIND — `sys.weather(LAT, LON, "current.wind_speed_10m") + " km/h"`; sub free.
+
+The WHOLE inner column is a TALL, VERTICALLY-SCROLLING page (~1500dp) — it does NOT
+need to fit one screen; the user DRAGS to scroll down and reveal the forecast, the
+maps row and the detail grid, so use comfortable, breathable spacing rather than
+cramming everything in.
+
+## Data shape it needs
+
+- city
+- temp (hero)
+- H / L / feels
+- 7 × (day name, weather emoji, lo°, hi°)
+- aqi + category
+- uv (0–11)
+- sunrise (clock time)
+- sunset (clock time)
+- humidity (percent) + dew point
+- wind (e.g. `8 mph`) + compass direction
+- lat / lon (real decimal; both maps take the SAME lat/lon)
+
+---
+
+Widgets used: WeatherIcon, sys.photo, sys.satellite, sys.basemap, sys.airmap,
+GradientYView, RoundedView, SolidView, Filler, Image, Label — see `widgets/`.

@@ -1,0 +1,55 @@
+// name: news-canonical
+// LIVE DATA: every headline is a sys.news(index, "key") call — NEVER invent a
+// headline. index 0 = top story. Row N uses index N in both sys.news calls.
+// Values show "—" until the async fetch lands, then the card auto-refreshes.
+SolidView{ width: Fill height: Fit flow: Overlay new_batch: true draw_bg.color: #0c0a07
+    GradientYView{ width: Fill height: Fill new_batch: true draw_bg.color: #17110a draw_bg.color_2: #0c0a07 }
+    View{ width: Fill height: Fit flow: Down padding: Inset{left: 22 top: 54 right: 22 bottom: 24} spacing: 10
+        View{ width: Fill height: Fit flow: Down spacing: 2 margin: Inset{bottom: 4}
+            Label{ text: "Hacker News" draw_text.color: #ff9f0a draw_text.text_style.font_size: 30 }
+            Label{ text: "Top Stories" draw_text.color: #ffffff99 draw_text.text_style.font_size: 15 }
+        }
+        RoundedView{ width: Fill height: Fit flow: Right spacing: 12 new_batch: true padding: Inset{left: 14 top: 12 right: 14 bottom: 12} draw_bg.color: #ffffff0f draw_bg.border_radius: 14.0
+            Label{ width: 26 text: "1" draw_text.color: #ff9f0a draw_text.text_style.font_size: 20 }
+            View{ width: Fill height: Fit flow: Down spacing: 3
+                Label{ width: Fill text: sys.news(0, "title") draw_text.color: #ffffff draw_text.text_style.font_size: 16 }
+                Label{ text: sys.news(0, "points") + " points · " + sys.news(0, "author") draw_text.color: #ffffff77 draw_text.text_style.font_size: 12 }
+            }
+        }
+        RoundedView{ width: Fill height: Fit flow: Right spacing: 12 new_batch: true padding: Inset{left: 14 top: 12 right: 14 bottom: 12} draw_bg.color: #ffffff0f draw_bg.border_radius: 14.0
+            Label{ width: 26 text: "2" draw_text.color: #ff9f0a draw_text.text_style.font_size: 20 }
+            View{ width: Fill height: Fit flow: Down spacing: 3
+                Label{ width: Fill text: sys.news(1, "title") draw_text.color: #ffffff draw_text.text_style.font_size: 16 }
+                Label{ text: sys.news(1, "points") + " points · " + sys.news(1, "author") draw_text.color: #ffffff77 draw_text.text_style.font_size: 12 }
+            }
+        }
+        RoundedView{ width: Fill height: Fit flow: Right spacing: 12 new_batch: true padding: Inset{left: 14 top: 12 right: 14 bottom: 12} draw_bg.color: #ffffff0f draw_bg.border_radius: 14.0
+            Label{ width: 26 text: "3" draw_text.color: #ff9f0a draw_text.text_style.font_size: 20 }
+            View{ width: Fill height: Fit flow: Down spacing: 3
+                Label{ width: Fill text: sys.news(2, "title") draw_text.color: #ffffff draw_text.text_style.font_size: 16 }
+                Label{ text: sys.news(2, "points") + " points · " + sys.news(2, "author") draw_text.color: #ffffff77 draw_text.text_style.font_size: 12 }
+            }
+        }
+        RoundedView{ width: Fill height: Fit flow: Right spacing: 12 new_batch: true padding: Inset{left: 14 top: 12 right: 14 bottom: 12} draw_bg.color: #ffffff0f draw_bg.border_radius: 14.0
+            Label{ width: 26 text: "4" draw_text.color: #ff9f0a draw_text.text_style.font_size: 20 }
+            View{ width: Fill height: Fit flow: Down spacing: 3
+                Label{ width: Fill text: sys.news(3, "title") draw_text.color: #ffffff draw_text.text_style.font_size: 16 }
+                Label{ text: sys.news(3, "points") + " points · " + sys.news(3, "author") draw_text.color: #ffffff77 draw_text.text_style.font_size: 12 }
+            }
+        }
+        RoundedView{ width: Fill height: Fit flow: Right spacing: 12 new_batch: true padding: Inset{left: 14 top: 12 right: 14 bottom: 12} draw_bg.color: #ffffff0f draw_bg.border_radius: 14.0
+            Label{ width: 26 text: "5" draw_text.color: #ff9f0a draw_text.text_style.font_size: 20 }
+            View{ width: Fill height: Fit flow: Down spacing: 3
+                Label{ width: Fill text: sys.news(4, "title") draw_text.color: #ffffff draw_text.text_style.font_size: 16 }
+                Label{ text: sys.news(4, "points") + " points · " + sys.news(4, "author") draw_text.color: #ffffff77 draw_text.text_style.font_size: 12 }
+            }
+        }
+        RoundedView{ width: Fill height: Fit flow: Right spacing: 12 new_batch: true padding: Inset{left: 14 top: 12 right: 14 bottom: 12} draw_bg.color: #ffffff0f draw_bg.border_radius: 14.0
+            Label{ width: 26 text: "6" draw_text.color: #ff9f0a draw_text.text_style.font_size: 20 }
+            View{ width: Fill height: Fit flow: Down spacing: 3
+                Label{ width: Fill text: sys.news(5, "title") draw_text.color: #ffffff draw_text.text_style.font_size: 16 }
+                Label{ text: sys.news(5, "points") + " points · " + sys.news(5, "author") draw_text.color: #ffffff77 draw_text.text_style.font_size: 12 }
+            }
+        }
+    }
+}

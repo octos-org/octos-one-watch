@@ -1,0 +1,39 @@
+// name: stock-canonical
+// LIVE DATA: every number is a sys.stock("AAPL", "key") call — NEVER a hardcoded
+// price. Pass the real uppercase ticker. Values show "—" until the async fetch
+// lands, then the card auto-refreshes.
+SolidView{ width: Fill height: Fit flow: Overlay new_batch: true draw_bg.color: #0b0f17
+    GradientYView{ width: Fill height: Fill new_batch: true draw_bg.color: #0b0f17 draw_bg.color_2: #16233d }
+    View{ width: Fill height: Fit flow: Down padding: Inset{left: 24 top: 54 right: 24 bottom: 26} spacing: 4
+        Label{ text: sys.stock("AAPL", "symbol") draw_text.color: #ffffff draw_text.text_style.font_size: 34 }
+        Label{ text: sys.stock("AAPL", "name") draw_text.color: #ffffff99 draw_text.text_style.font_size: 15 }
+        Label{ text: "$" + sys.stock("AAPL", "price") draw_text.color: #ffffff draw_text.text_style.font_size: 56 margin: Inset{top: 10 bottom: 0} }
+        View{ width: Fill height: 30 flow: Right align: Align{y: 0.5} spacing: 8
+            Label{ text: sys.stock("AAPL", "change") draw_text.color: #5ac8fa draw_text.text_style.font_size: 18 }
+            Label{ text: "(" + sys.stock("AAPL", "changepct") + ")" draw_text.color: #5ac8fa draw_text.text_style.font_size: 18 }
+            Label{ text: sys.stock("AAPL", "currency") draw_text.color: #ffffff66 draw_text.text_style.font_size: 14 }
+        }
+        View{ width: Fill height: Fit flow: Down spacing: 10 margin: Inset{top: 22 bottom: 0}
+            View{ width: Fill height: Fit flow: Right spacing: 10
+                RoundedView{ width: Fill height: Fit flow: Down spacing: 2 new_batch: true padding: Inset{left: 16 top: 12 right: 16 bottom: 12} draw_bg.color: #ffffff12 draw_bg.border_radius: 16.0
+                    Label{ text: "PREV CLOSE" draw_text.color: #ffffff99 draw_text.text_style.font_size: 11 }
+                    Label{ text: "$" + sys.stock("AAPL", "prev") draw_text.color: #ffffff draw_text.text_style.font_size: 20 }
+                }
+                RoundedView{ width: Fill height: Fit flow: Down spacing: 2 new_batch: true padding: Inset{left: 16 top: 12 right: 16 bottom: 12} draw_bg.color: #ffffff12 draw_bg.border_radius: 16.0
+                    Label{ text: "OPEN" draw_text.color: #ffffff99 draw_text.text_style.font_size: 11 }
+                    Label{ text: "$" + sys.stock("AAPL", "open") draw_text.color: #ffffff draw_text.text_style.font_size: 20 }
+                }
+            }
+            View{ width: Fill height: Fit flow: Right spacing: 10
+                RoundedView{ width: Fill height: Fit flow: Down spacing: 2 new_batch: true padding: Inset{left: 16 top: 12 right: 16 bottom: 12} draw_bg.color: #ffffff12 draw_bg.border_radius: 16.0
+                    Label{ text: "DAY HIGH" draw_text.color: #ffffff99 draw_text.text_style.font_size: 11 }
+                    Label{ text: "$" + sys.stock("AAPL", "high") draw_text.color: #30d158 draw_text.text_style.font_size: 20 }
+                }
+                RoundedView{ width: Fill height: Fit flow: Down spacing: 2 new_batch: true padding: Inset{left: 16 top: 12 right: 16 bottom: 12} draw_bg.color: #ffffff12 draw_bg.border_radius: 16.0
+                    Label{ text: "DAY LOW" draw_text.color: #ffffff99 draw_text.text_style.font_size: 11 }
+                    Label{ text: "$" + sys.stock("AAPL", "low") draw_text.color: #ff453a draw_text.text_style.font_size: 20 }
+                }
+            }
+        }
+    }
+}
