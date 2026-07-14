@@ -51,8 +51,13 @@ required so the `Fill` tap-Button resolves inside the `Overlay`.
 ## DETAIL QUOTE structure (top to bottom) — `exemplars/stock-canonical.splash`
 
 Root = `flow: Overlay` SolidView `height: 858` + `GradientYView`, then `flow: Down`,
-padding `Inset{left: 22 top: 50 right: 22 bottom: 118}`:
+padding `Inset{left: 22 top: 42 right: 22 bottom: 118}`:
 
+0. **Back button** (FIRST, required) — a text-only `Button{ width: Fit height: Fit
+   text: "‹  Movers" draw_bg.color: #00000000 draw_bg.border_size: 0.0
+   draw_text.color: #30d158 draw_text.text_style.font_size: 15 on_click: ||
+   agent.notify("back", {}) }`. Tapping it returns to the movers list. Always
+   include it.
 1. **Header** — `symbol` (font 32); below it `name + "  ·  " + exchange + "  ·  " +
    currency` (font 13, dim).
 2. **Hero price** — `"$" + price` (font 42); **change row** `change + "  (" +
