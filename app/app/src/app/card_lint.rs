@@ -13,12 +13,15 @@
 use makepad_widgets::*;
 
 /// One executable requirement: `pattern` must occur at least `min` times in
-/// the card body. `desc` is echoed into the repair prompt, so write it as an
-/// instruction the model can act on.
+/// the card body, and — when `max` is set — at most `max` times (a `max: 0`
+/// rule is a BANNED pattern, e.g. photo/map imagery on e-ink cards). `desc` is
+/// echoed into the repair prompt, so write it as an instruction the model can
+/// act on.
 pub struct LintRule {
     pub desc: String,
     pub pattern: String,
     pub min: usize,
+    pub max: Option<usize>,
 }
 
 /// Load `apps/<domain>/lint.json` from the deployed a2app memory tree.
@@ -51,7 +54,8 @@ pub fn load_rules(domain: &str) -> Option<Vec<LintRule>> {
         // desc/pattern), reject the WHOLE file and fall through to the next
         // candidate — a half-written rule must not silently reduce enforcement
         // while the file still yields a non-empty set. `min` accepts ints and
-        // JSON floats (`22.0`); a missing/invalid min defaults to 1.
+        // JSON floats (`22.0`); a missing/invalid min defaults to 1. `max`
+        // (same parsing) is optional; `max: 0` bans the pattern outright.
         let arr = root.get("rules")?.as_array()?;
         let mut rules = Vec::with_capacity(arr.len());
         for r in arr {
@@ -63,7 +67,12 @@ pub fn load_rules(domain: &str) -> Option<Vec<LintRule>> {
                 .filter(|n| n.is_finite() && *n >= 0.0)
                 .map(|n| n as usize)
                 .unwrap_or(1);
-            rules.push(LintRule { desc, pattern, min });
+            let max = r
+                .get("max")
+                .and_then(|m| m.as_f64())
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .map(|n| n as usize);
+            rules.push(LintRule { desc, pattern, min, max });
         }
         if rules.is_empty() { None } else { Some(rules) }
     })
@@ -76,9 +85,15 @@ pub fn lint(body: &str, rules: &[LintRule]) -> Vec<String> {
         .iter()
         .filter_map(|r| {
             let n = body.matches(r.pattern.as_str()).count();
-            (n < r.min).then(|| {
-                format!("{} (found {} of the required {} `{}`)", r.desc, n, r.min, r.pattern)
-            })
+            if n < r.min {
+                Some(format!("{} (found {} of the required {} `{}`)", r.desc, n, r.min, r.pattern))
+            } else if let Some(max) = r.max {
+                (n > max).then(|| {
+                    format!("{} (found {} but at most {} `{}` allowed)", r.desc, n, max, r.pattern)
+                })
+            } else {
+                None
+            }
         })
         .collect()
 }

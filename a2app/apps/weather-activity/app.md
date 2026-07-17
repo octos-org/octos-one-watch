@@ -3,7 +3,7 @@
 This app COMPOSES two parents at the BLOCK level: `apps/weather/app.md`'s
 `BLOCK: CURRENT` on top, then `apps/activity/app.md`'s place-row pattern for
 the suggestions. Reuse the parents' established blocks EXACTLY as their specs
-define them — never redesign them. **One** dark, design-system card answering
+define them — never redesign them. **One** dark, watch-sized card answering
 "what should I DO given this weather?" — activities / plans / "should I go
 out" / "这个天气适合做什么" — where weather or air quality decides the answer.
 This file is also the CANONICAL EXAMPLE of a composed spec: when the router
@@ -19,7 +19,7 @@ widget patterns** — there is no exemplar. Build it from
 MANDATORY.
 
 The VERY FIRST line of the block is `// name: weather-activity` — the name
-line is a hard rule. Root/screen: weather's `BLOCK: PHOTO-BACKDROP` — the full-screen city photo matching current conditions + dark scrim (the weather app's visual identity; NOT the plain gradient). The verdict line and each activity-row group sit on translucent panels (`RoundedView` `#00000055`, border_radius 20, padded 14-16) so text stays legible over the photo. Card height 1100+ (a scrolling page like the parent). Resolve LAT, LON to the
+line is a hard rule. Root/screen: weather's `BLOCK: WATCH-FRAME` — the full-screen TRUE-BLACK watch frame (the weather app's visual identity on the watch; photos/scrims are NOT used). The verdict line and each activity-row group sit on frosted panels (`RoundedView` `#ffffff14`, border_radius 14, padded 12-14). Card height ~560 (a short scrolling page). Resolve LAT, LON to the
 request's place (a bare "should I go out" = the user's current city from the
 conversation context) — REAL decimal coordinates, the SAME LAT, LON in EVERY
 `sys.*` call. No state keys or tap overlays are required.
@@ -27,13 +27,13 @@ conversation context) — REAL decimal coordinates, the SAME LAT, LON in EVERY
 ## Structure, top to bottom
 
 **(1) CURRENT — weather's `BLOCK: CURRENT`**, reproduced per
-`apps/weather/app.md` (same content, same live bindings, over the PHOTO-BACKDROP set above — NOT a gradient). Its mandatory bindings, briefly:
+`apps/weather/app.md` (same content, same live bindings, over the WATCH-FRAME set above). Its mandatory bindings, briefly:
 - City (font 30).
 - Hero temp ALONE on its line (font 60, `margin: Inset{top: 6 bottom: 0}`):
   `sys.weather(LAT, LON, "current.temperature_2m") + "°"`.
 - The `flow: Right` row: animated `WeatherIcon{ draw_bg.cond: <N> width: 60
   height: 60 }` + condition Label (font 20), cond per `widgets/weather-icon.md`.
-- The H/L/Feels line (font 15, #ffffffcc): `"H:" + sys.weather(LAT, LON,
+- The H/L line (font 13, #ffffff99): `"H:" + sys.weather(LAT, LON,
   "daily.temperature_2m_max.0") + "°  L:" + sys.weather(LAT, LON,
   "daily.temperature_2m_min.0") + "°  Feels " + sys.weather(LAT, LON,
   "current.apparent_temperature") + "°"`.
@@ -64,7 +64,7 @@ live values, e.g. `"Clear and " + sys.weather(LAT, LON,
 "current.temperature_2m") + "° — a great day to be outside"` or `"AQI " +
 sys.airquality(LAT, LON, "current.us_aqi") + " — better indoors today"`.
 
-**(4) PLACE ROWS** — then 4–6 rows per branch in `apps/activity/app.md`'s row
+**(4) PLACE ROWS** — then 3–4 rows per branch (the watch cap) in `apps/activity/app.md`'s row
 pattern (plain hairline-separated `flow: Right` rows, NO filled containers):
 - its category emoji `Label` (width ~36);
 - the venue name = `sys.places(LAT, LON, "<cat>", i, "name")` (heading,
@@ -102,10 +102,10 @@ the ACTIVE branch evaluates, so the two branches never fetch concurrently.
 ## Failure conditions
 
 A missing `// name: weather-activity` first line, a photo background (this
-card is the gradient screen), a missing or partially-bound BLOCK: CURRENT
+card is the true-black watch screen), a missing or partially-bound BLOCK: CURRENT
 (city, hero temp, WeatherIcon row, H/L/Feels — all four), a missing `-9999`
 loading guard, unconditional suggestions (no `sys.weathernum` / `sys.aqinum`
-branch), an outdoor branch not gated on AQI AND rain, fewer than 4 place rows
+branch), an outdoor branch not gated on AQI AND rain, fewer than 3 place rows
 in either branch, any venue name or distance not bound via `sys.places`, a
 reason line citing no live value, any hardcoded weather/air number, or
 filled/tinted row containers = FAILURE.

@@ -1,0 +1,106 @@
+diff --git a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
+index aa07f7022..a2aaad3a1 100644
+--- a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
++++ b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
+@@ -2480,8 +2480,24 @@ public class MakepadActivity
+     // dispatched by the Android view tree, so the pill consumes its own taps
+     // *before* Makepad's routing runs (the full-screen card's PortalList can't
+     // swallow them); taps outside the pill fall through to the card.
++    //
++    // Theme hook: an app can select the monochrome ("mono") composer look via
++    // <meta-data android:name="makepad.COMPOSER_THEME" android:value="mono"/>
++    // in its manifest (used by the e-ink variant). Absent = the default teal.
++    private boolean composerThemeIsMono() {
++        try {
++            android.content.pm.ApplicationInfo ai = getPackageManager()
++                .getApplicationInfo(getPackageName(),
++                    android.content.pm.PackageManager.GET_META_DATA);
++            if (ai.metaData != null) {
++                return "mono".equals(ai.metaData.getString("makepad.COMPOSER_THEME"));
++            }
++        } catch (Exception ignored) {}
++        return false;
++    }
+     private void setupComposerOverlay() {
+         final float d = getResources().getDisplayMetrics().density;
++        final boolean mono = composerThemeIsMono();
+ 
+         mComposerOverlay = new FrameLayout(this);
+         mComposerOverlay.setLayoutParams(new FrameLayout.LayoutParams(
+@@ -2498,9 +2514,9 @@ public class MakepadActivity
+         mComposerPill.setOrientation(LinearLayout.HORIZONTAL);
+         mComposerPill.setGravity(Gravity.CENTER_VERTICAL);
+         GradientDrawable pillBg = new GradientDrawable();
+-        pillBg.setColor(0xE60B4035);                    // ~90% opaque #0B4035
++        pillBg.setColor(mono ? 0xE6FFFFFF : 0xE60B4035); // ~90% opaque (mono: white)
+         pillBg.setCornerRadius(24.0f * d);
+-        pillBg.setStroke(Math.max(1, (int) (1.5f * d)), 0x5572E4FF);
++        pillBg.setStroke(Math.max(1, (int) (1.5f * d)), mono ? 0xFF000000 : 0x5572E4FF);
+         mComposerPill.setBackground(pillBg);
+         int padH = (int) (16.0f * d);
+         int padV = (int) (8.0f * d);
+@@ -2533,8 +2549,8 @@ public class MakepadActivity
+         // cargo-makepad javac runs under file.encoding=UTF-8, so the literal
+         // UTF-8 source is decoded correctly.
+         mComposerInput.setHint("问任何事…");
+-        mComposerInput.setHintTextColor(0x88F3E3C7);
+-        mComposerInput.setTextColor(0xFFF3E3C7);
++        mComposerInput.setHintTextColor(mono ? 0x88000000 : 0x88F3E3C7);
++        mComposerInput.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
+         mComposerInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16.0f);
+         // Single line so the IME shows a "Send" action key (a multiline flag
+         // turns it into a newline key). Prompts here are short.
+@@ -2563,7 +2579,7 @@ public class MakepadActivity
+         // Send button — gold paper-plane glyph.
+         TextView send = new TextView(this);
+         send.setText("➤");                                    // ➤
+-        send.setTextColor(0xFFF3E3C7);
++        send.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
+         send.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20.0f);
+         send.setGravity(Gravity.CENTER);
+         int sendSize = (int) (40.0f * d);
+@@ -2584,7 +2600,7 @@ public class MakepadActivity
+         int ctlSize = (int) (40.0f * d);
+         TextView newAppBtn = new TextView(this);
+         newAppBtn.setText("＋");
+-        newAppBtn.setTextColor(0xFF72E4FF);
++        newAppBtn.setTextColor(mono ? 0xFF000000 : 0xFF72E4FF);
+         newAppBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19.0f);
+         newAppBtn.setGravity(Gravity.CENTER);
+         newAppBtn.setLayoutParams(new LinearLayout.LayoutParams(ctlSize, ctlSize));
+@@ -2598,7 +2614,7 @@ public class MakepadActivity
+         });
+         TextView switchBtn = new TextView(this);
+         switchBtn.setText("⟳");
+-        switchBtn.setTextColor(0xFFF3E3C7);
++        switchBtn.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
+         switchBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19.0f);
+         switchBtn.setGravity(Gravity.CENTER);
+         switchBtn.setLayoutParams(new LinearLayout.LayoutParams(ctlSize, ctlSize));
+@@ -2614,7 +2630,7 @@ public class MakepadActivity
+         // showQrScanner). Sits left of the input: [＋][⟳][⛶][input][➤].
+         TextView qrBtn = new TextView(this);
+         qrBtn.setText("⛶");
+-        qrBtn.setTextColor(0xFFF3E3C7);
++        qrBtn.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
+         qrBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19.0f);
+         qrBtn.setGravity(Gravity.CENTER);
+         qrBtn.setLayoutParams(new LinearLayout.LayoutParams(ctlSize, ctlSize));
+@@ -2639,14 +2655,14 @@ public class MakepadActivity
+         // expanded, matching the app's composer_shown=true); tapping it expands.
+         mComposerFab = new TextView(this);
+         mComposerFab.setText("+");
+-        mComposerFab.setTextColor(0xFFF3E3C7);
++        mComposerFab.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
+         mComposerFab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28.0f);
+         mComposerFab.setGravity(Gravity.CENTER);
+         mComposerFab.setIncludeFontPadding(false);
+         GradientDrawable fabBg = new GradientDrawable();
+         fabBg.setShape(GradientDrawable.OVAL);
+-        fabBg.setColor(0xE60B4035);                    // matches the pill teal
+-        fabBg.setStroke(Math.max(1, (int) (1.5f * d)), 0x5572E4FF);
++        fabBg.setColor(mono ? 0xE6FFFFFF : 0xE60B4035); // matches the pill
++        fabBg.setStroke(Math.max(1, (int) (1.5f * d)), mono ? 0xFF000000 : 0x5572E4FF);
+         mComposerFab.setBackground(fabBg);
+         int fabSize = (int) (52.0f * d);
+         FrameLayout.LayoutParams fabLp = new FrameLayout.LayoutParams(fabSize, fabSize);

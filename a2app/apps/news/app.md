@@ -30,16 +30,16 @@ news_app.detail { show_list() } }`, masthead `on_click: || header_click()`).
 
 ## Layout — MANDATORY, top to bottom
 
-Root: `SolidView{ width: Fill height: 780 flow: Overlay new_batch: true }`,
-charcoal `#0b0b0d`, with a warm `GradientYView` (`#21170d → #0b0b0d`) under a
-padded `flow: Down` column (`Inset{left: 18 top: 48 right: 18 bottom: 24}`).
+Root: `SolidView{ width: Fill height: 460 flow: Overlay new_batch: true }`,
+TRUE BLACK `#000000` (OLED watch), NO gradient, under a
+padded `flow: Down` column (`Inset{left: 12 top: 12 right: 12 bottom: 56}`).
 Orange accent `#ff9f0a`, white primary text, muted `#ffffff77-88` metadata,
 8px card radius, cards never nest.
 
 1. **Masthead** — `header_btn := Button{ width: Fill height: 44 }`,
    orange 11pt text `TOP STORIES`; `on_click` calls `show_list()` when in
    detail (the big Back target). Under it `page_title := Label` 26pt white.
-2. **Lead card** — fixed `RoundedView` height 240 (`#ffffff12`) for story 0 /
+2. **Lead card** — fixed `RoundedView` height 200 (`#ffffff12`) for story 0 /
    the selected story: `lead_kicker :=` (orange 11), `lead_title :=` (20pt,
    `width: Fill`, live `sys.news(0, "title")`), `lead_meta :=` (12pt, live
    points · comments · by author), `lead_url :=` (10pt `#ffb340`, empty in
@@ -49,7 +49,7 @@ Orange accent `#ff9f0a`, white primary text, muted `#ffffff77-88` metadata,
 3. **Section label** — `section_label :=` orange 10pt, `LATEST` (list) /
    `TOP STORIES` (detail).
 4. **Dense feed** — `ScrollYView{ width: Fill height: Fill }` holding SEVEN
-   story rows for indexes 1..7, built from TWO style templates you define
+   story rows for indexes 1..5 (the watch cap), built from TWO style templates you define
    (interaction.md § style templates): a 136dp `StoryRow` RoundedView
    (`#ffffff0d`) and a transparent 72dp trailing `RowTap` Button (plain `Button`, fully transparent draw_bg colors) whose
    `on_click: || show_story(i)` (expression form). Each row: rank number (orange 17),

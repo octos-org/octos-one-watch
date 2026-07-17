@@ -1,4 +1,42 @@
-# octos-one
+# octos-one-watch
+
+**Square-watch edition of [octos-one](https://github.com/octos-org/octos-one)**
+— the agent-OS client re-laid-out for small square screens (480×480 px /
+~320 dp class, OLED).
+
+Package `dev.makepad.octos_watch`, label **Octos Watch**. Registers as both a
+launcher (HOME) and a system component (priv-app) — see
+[docs/SYSTEM-APP.md](docs/SYSTEM-APP.md). Declares
+`android.hardware.type.watch` (optional) and `supports-screens
+smallScreens` in the manifest.
+
+## What the watch optimization changes
+
+- **Square watch design system** (`a2app/widgets/design-system.md`): true-black
+  OLED background, ONE column, glanceable content volume (lists cap at 5 rows,
+  forecasts 3 days, stat grids 2×2, charts ≤ 120 tall), type floor 10pt,
+  touch targets ≥ 44px, 460-tall scrolling card frame.
+- **Compact app specs** (`a2app/apps/*`): weather drops the photo backdrop,
+  map panes and the 7-day list for a glance + 3-day forecast + 2×2 tiles
+  (enforced by `lint.json`, incl. new `"max": 0` bans); stock shows 5 movers
+  and a 110-tall chart; news shows 5 rows; activity 4–5 places.
+- **Shell UI adapts from the first frame** (`app/app/src/main.rs`): the
+  sidebar + glass toolbar auto-collapse on startup below the 600px narrow
+  threshold (previously only after the first navigation).
+- **Same octos kernel & agents** as upstream — routing, composition, live
+  data unchanged.
+
+Build exactly like upstream ([docs/BUILDING-ANDROID.md](docs/BUILDING-ANDROID.md)) with:
+
+```bash
+cargo makepad android --abi=x86_64 \
+  --package-name=dev.makepad.octos_watch --app-label="Octos Watch" \
+  build -p octos-app --release
+```
+
+---
+
+# octos-one (upstream README)
 
 An **agent-OS phone client**: a native Android app where a routing brain (the
 **AMA**) dispatches every request to a concurrent **app agent** that generates a

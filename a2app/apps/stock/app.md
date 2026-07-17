@@ -34,12 +34,12 @@ if sel == "0" || sel == "" { /* LIST */ } else { /* DETAIL for `sel` */ }
 
 Follow `widgets/design-system.md` for ALL tokens: colors, the type scale,
 spacing, radii, layering (`new_batch`), separators, and emphasis rules. The
-root/screen frame is the design system's standard 858-tall gradient screen.
+root/screen frame is the design system's standard 460-tall true-black WATCH screen (one column, scrolls).
 
 ## LIST view — MANDATORY contents
 
 - Eyebrow `"TODAY · TOP GAINERS"` (green, 13) and title `"Movers"` (white, 34).
-- ALL 10 rows (`i` = 0..9), hairline-separated; EVERY row shows: rank `i+1`
+- FIVE rows (`i` = 0..4 — the watch cap), hairline-separated; EVERY row shows: rank `i+1`
   (dim), `sys.movers(i, "symbol")` (white ~22) with `sys.movers(i, "name")`
   (dim 13) under it, and right-aligned `"$" + sys.movers(i, "price")` (white
   ~22) over green `sys.movers(i, "changepct")` (15). No row may drop a field.
@@ -60,16 +60,16 @@ root/screen frame is the design system's standard 858-tall gradient screen.
    `sys.stockrange(sel, rng, "up") == "1"` else red; beside it a dim caption
    per range: `""`/`1d` → "Today", `1w` → "Past week", `1m` → "Past month",
    `6m` → "Past 6 months", `1y` → "Past year".
-5. Chart — PREFERRED: `StockPlot{ width: Fill height: 160 symbol: sel
+5. Chart — PREFERRED: `StockPlot{ width: Fill height: 110 symbol: sel
    range: rng }` (see `widgets/sys-helpers.md`). It draws the full chart
    itself — line + area auto-colored by the range direction, dashed baseline,
    gridlines, price labels in the right margin, and time labels under the
    plot — so add NOTHING around it: no manual Y-axis labels, no gridline
    stack, no time-label row.
-   FALLBACK (only if `StockPlot` is unavailable, ~116 tall): LEFT Y-axis
+   FALLBACK (only if `StockPlot` is unavailable, ~96 tall): LEFT Y-axis
    labels `"$" + sys.stockrange(sel, rng, "high")` (top) and `…"low"`
-   (bottom), dim 10; the plot is 68 bottom-aligned bars
-   `SolidView{ height: sys.stockbar(sel, i, 68, 114, rng) }` (i = 0..67,
+   (bottom), dim 10; the plot is 48 bottom-aligned bars
+   `SolidView{ height: sys.stockbar(sel, i, 48, 96, rng) }` (i = 0..47,
    Overlay above 3 hairline gridlines); bars green when
    `sys.stockrange(sel, rng, "up") == "1"`, red otherwise.
 6. Time labels (FALLBACK bars only — `StockPlot` draws its own): UNDER the
@@ -81,9 +81,9 @@ root/screen frame is the design system's standard 858-tall gradient screen.
    "1y"`; the ACTIVE chip (matching `rng`, `""` ≡ `"1d"`) is bright `#30d158`
    text with the 2dp accent underline; inactive chips `#ffffff66` text with the
    transparent spacer. No filled pills.
-8. Stat grid: a frosted `RoundedView` (`#ffffff0d`) with 3 rows × 2 columns —
-   `PREV CLOSE  $prev`, `VOLUME  vol`, `DAY HIGH  $high`, `DAY LOW  $low`,
-   `52W HIGH  $52wh`, `52W LOW  $52wl` (labels dim 12, values white ~22),
+8. Stat grid: a frosted `RoundedView` (`#ffffff14`) with 2 rows × 2 columns —
+   `PREV CLOSE  $prev`, `VOLUME  vol`, `DAY HIGH  $high`, `DAY LOW  $low`
+   (labels dim 10, values white ~17 — the watch drops the 52W pair),
    hairline row separators.
 
 ## LIVE DATA — MANDATORY (never write a number)

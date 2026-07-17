@@ -4026,15 +4026,21 @@ impl App {
     #[cfg(target_os = "android")]
     fn stdio_spawn() -> Option<StdioSpawn> {
         let lib_dir = Self::android_native_lib_dir()?;
-        let program = lib_dir.join("liboctos.so");
-        if !program.exists() {
+        let home = std::path::PathBuf::from("/data/user/0/dev.makepad.octos_watch/files/octos-home");
+        // Kernel search order: (1) the APK-bundled lib in our nativeLibraryDir,
+        // (2) a staged copy in the app's private files dir (used by
+        // /system/priv-app installs — see docs/SYSTEM-APP.md).
+        let staged = home.join(".bin/liboctos.so");
+        let Some(program) = [lib_dir.join("liboctos.so"), staged]
+            .into_iter()
+            .find(|p| p.exists())
+        else {
             log::warn!(
-                "stdio: bundled octos not found at {}; using WebSocket transport",
-                program.display()
+                "stdio: bundled octos not found under {}; using WebSocket transport",
+                lib_dir.display()
             );
             return None;
-        }
-        let home = std::path::PathBuf::from("/data/user/0/dev.makepad.octos_app/files/octos-home");
+        };
         // Ensure HOME exists BEFORE spawning: `Command::spawn` chdir's into
         // `cwd` before exec, so a missing octos-home makes the spawn fail with
         // ENOENT ("No such file or directory") even though the binary is fine —
@@ -4248,7 +4254,7 @@ impl App {
     fn app_cards_memory_dir() -> Option<String> {
         #[cfg(target_os = "android")]
         {
-            let p = "/data/user/0/dev.makepad.octos_app/files/octos-home/.octos/profiles/_main/data/memory/app-cards/apps";
+            let p = "/data/user/0/dev.makepad.octos_watch/files/octos-home/.octos/profiles/_main/data/memory/app-cards/apps";
             // The dir must EXIST for the kernel's cwd validation to accept the
             // hint (validate_session_workspace_allowed canonicalizes it).
             let _ = std::fs::create_dir_all(p);
@@ -6239,7 +6245,7 @@ impl MatchEvent for App {
         #[cfg(target_os = "android")]
         if let Ok(src) = std::env::var("MAKEPAD_PROVISION_DIR") {
             let home = std::path::PathBuf::from(
-                "/data/user/0/dev.makepad.octos_app/files/octos-home",
+                "/data/user/0/dev.makepad.octos_watch/files/octos-home",
             );
             match deploy_provision(std::path::Path::new(&src), &home) {
                 Ok(n) => log::info!("provision: deployed {n} files from {src}"),
@@ -6301,6 +6307,12 @@ impl MatchEvent for App {
         // Thinking toggle is inert in M1 (see `handle_actions` comment); the
         // initial state is whatever the DSL declared (`active: false`).
         self.apply_glass_opacity(cx, DEFAULT_GLASS_OPACITY);
+
+        // WATCH: the square screen is 480px — below the 600px narrow-width
+        // threshold — so the sidebar + glass toolbar must be collapsed from
+        // the FIRST frame, not only after the first navigation (the ☰ button
+        // still brings the sidebar back as an overlay).
+        self.collapse_sidebar_if_narrow(cx);
 
         // ---- W08 — boot decision: LoginScreen vs Home ---------------------
         // Login-free boot (user directive): the LoginScreen is never shown.

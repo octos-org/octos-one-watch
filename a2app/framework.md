@@ -42,9 +42,10 @@ or `none — reason`); `none` ONLY when no domain's data bears on the request.
 
 A composed app INHERITS the VISUAL IDENTITY of its PRIMARY parent (the domain
 named first): reproduce that parent's backdrop/frame blocks — e.g. any
-weather-X app sits in weather's `BLOCK: PHOTO-BACKDROP` (city photo + scrim),
-never the generic gradient — and put the secondary domain's content on the
-parent's translucent panel treatment so it reads as ONE designed app.
+weather-X app sits in weather's `BLOCK: WATCH-FRAME` (true-black OLED frame) —
+and put the secondary domain's content on the parent's frosted panel
+treatment so it reads as ONE designed app. WATCH RULE: composed apps follow
+widgets/design-system.md (one column, 460-tall frame, nothing under 10pt).
 
 For the ROUTING agent (AMA) only — card generation never does this. When a
 request spans TWO domains and NO existing app (the composed ones above

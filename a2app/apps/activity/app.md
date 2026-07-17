@@ -23,8 +23,8 @@ card.
 ## Visual language
 
 Follow `widgets/design-system.md` for ALL tokens: colors, type scale, spacing,
-separators. The root/screen frame is the design system's standard 858-tall
-gradient screen.
+separators. The root/screen frame is the design system's standard 460-tall
+true-black WATCH screen (one column, scrolls).
 
 ## Structure, top to bottom — MANDATORY contents
 
@@ -38,7 +38,7 @@ gradient screen.
 - **Empty state**: inside the guard, branch on `sys.placesnum(LAT, LON,
   "<lead-cat>") == 0` → one friendly line ("Nothing close by — try another
   spot", body, `text/secondary`) instead of the rows.
-- **5–8 place rows**. Pick exactly 2 categories that fit the intent from the
+- **4–5 place rows** (the watch cap — one glance plus one drag). Pick exactly 2 categories that fit the intent from the
   `sys.places` list (`park garden museum cafe cinema gym library pool
   viewpoint playground trail`; default trio `park`, `cafe`, `museum`) and take
   indexes 0, 1, 2… within each (one fetch serves all rows of a category).
@@ -67,13 +67,13 @@ nothing venue-specific).
 
 Bind AT MOST TWO distinct `sys.places` categories in the whole card (the data
 source allows 2 concurrent requests; more rate-limits the device and every row
-shows "—"). Pick the two best-fitting categories for the request and take 3-4
+shows "—"). Pick the two best-fitting categories for the request and take 2-3
 rows from each by index.
 
 ## Failure conditions
 
 A missing `// name: activity` first line, any model-invented venue name or
-distance, fewer than 5 place rows, a row without its `sys.places` name binding
+distance, fewer than 4 place rows, a row without its `sys.places` name binding
 or without the `sys.places` distance in its reason line, a missing
 `sys.placesnum` loading guard, a missing empty-state branch, filled/tinted row
 containers, different lat/lon between calls, or a category outside the

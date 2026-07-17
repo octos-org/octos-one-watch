@@ -6,24 +6,14 @@
       "min": 1
     },
     {
-      "desc": "the backdrop photo comes from sys.photo (BLOCK: PHOTO-BACKDROP)",
-      "pattern": "sys.photo(",
-      "min": 1
+      "desc": "the screen is true black (OLED watch face)",
+      "pattern": "#000000",
+      "min": 2
     },
     {
-      "desc": "photo/map images must CropToFill (photo + satellite + basemap + airmap)",
-      "pattern": "ImageFit.CropToFill",
-      "min": 4
-    },
-    {
-      "desc": "an animated WeatherIcon shows the current condition",
-      "pattern": "WeatherIcon{",
-      "min": 1
-    },
-    {
-      "desc": "hero temp, H/L/feels, 7-day rows, and tiles all bind sys.weather",
+      "desc": "hero temp, H/L, 3-day rows and tiles all bind sys.weather",
       "pattern": "sys.weather(",
-      "min": 22
+      "min": 12
     },
     {
       "desc": "the AIR QUALITY tile binds sys.airquality",
@@ -31,24 +21,21 @@
       "min": 1
     },
     {
-      "desc": "the satellite pane binds sys.satellite",
-      "pattern": "sys.satellite(",
-      "min": 1
+      "desc": "three fixed-height forecast rows (height: 36 each)",
+      "pattern": "height: 36",
+      "min": 3
     },
     {
-      "desc": "the air map stacks sys.airmap over sys.basemap",
-      "pattern": "sys.airmap(",
-      "min": 1
+      "desc": "no photo backdrop on the watch — drop the sys.photo image",
+      "pattern": "sys.photo(",
+      "min": 0,
+      "max": 0
     },
     {
-      "desc": "the air map stacks sys.airmap over sys.basemap",
-      "pattern": "sys.basemap(",
-      "min": 1
-    },
-    {
-      "desc": "seven fixed-height forecast rows (height: 40 each)",
-      "pattern": "height: 40",
-      "min": 7
+      "desc": "no map panes on the watch — satellite/AQ maps don't fit a 320dp square",
+      "pattern": "http_resource(",
+      "min": 0,
+      "max": 0
     }
   ]
 }
