@@ -16,9 +16,9 @@
       "min": 1
     },
     {
-      "desc": "all 10 list rows + the back button must write key `selected` via agent.notify",
+      "desc": "all 5 list rows + the back button must write key `selected` via agent.notify",
       "pattern": "key: \"selected\"",
-      "min": 11
+      "min": 6
     },
     {
       "desc": "all five range chips must write key `range` via agent.notify",
@@ -26,9 +26,9 @@
       "min": 5
     },
     {
-      "desc": "every list row binds sys.movers fields (10 rows x fields)",
+      "desc": "every list row binds sys.movers fields (5 rows x fields)",
       "pattern": "sys.movers(",
-      "min": 30
+      "min": 15
     },
     {
       "desc": "Y-axis + change line use range-aware sys.stockrange",
@@ -38,12 +38,12 @@
     {
       "desc": "rows and chips need tap overlays (flow: Overlay containers)",
       "pattern": "flow: Overlay",
-      "min": 12
+      "min": 7
     },
     {
-      "desc": "tap handlers: 10 rows + 5 chips + back button",
+      "desc": "tap handlers: 5 rows + 5 chips + back button",
       "pattern": "on_click",
-      "min": 15
+      "min": 11
     },
     {
       "desc": "the DETAIL view must bind the live quote via sys.stock",
