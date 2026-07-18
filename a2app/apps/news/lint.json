@@ -21,9 +21,9 @@
       "min": 1
     },
     {
-      "desc": "define and instantiate the StoryRow template for all seven feed rows",
+      "desc": "define and instantiate the StoryRow template for all five feed rows (the watch cap)",
       "pattern": "StoryRow{",
-      "min": 7
+      "min": 5
     },
     {
       "desc": "the feed rows live in a ScrollYView",
@@ -31,19 +31,19 @@
       "min": 1
     },
     {
-      "desc": "bind live stories via sys.news across lead + 7 rows",
+      "desc": "bind live stories via sys.news across lead + 5 rows",
       "pattern": "sys.news(",
-      "min": 20
+      "min": 14
     },
     {
-      "desc": "the fixed shell is the 780-tall Overlay root",
-      "pattern": "height: 780",
+      "desc": "the fixed shell is the 460-tall Overlay root (watch frame)",
+      "pattern": "height: 460",
       "min": 1
     },
     {
-      "desc": "every row + masthead + lead needs a tap handler (>=9 on_click)",
+      "desc": "every row + masthead + lead needs a tap handler (>=7 on_click)",
       "pattern": "on_click",
-      "min": 9
+      "min": 7
     }
   ]
 }

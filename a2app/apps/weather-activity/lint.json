@@ -6,9 +6,9 @@
       "min": 1
     },
     {
-      "desc": "both branches bind venue name + distance via sys.places (4-6 rows x 2 each)",
+      "desc": "each branch binds venue name + distance via sys.places (3-4 rows x 2)",
       "pattern": "sys.places(",
-      "min": 8
+      "min": 6
     },
     {
       "desc": "the loading guard + outdoor gate branch on live numeric weather (temp, rain)",

@@ -3989,8 +3989,19 @@ impl App {
                 url::Url::parse("https://localhost:8080").expect("static URL is valid")
             });
         let bearer = SecretString::new(std::env::var("OCTOS_BEARER").unwrap_or_default());
+        let stdio = Self::stdio_spawn();
+        // The embedded kernel's local profile is `_main` (its on-disk profile
+        // id, where the LLM provider config lives) — `session/open` naming
+        // anything else (the old `default` fallback) is rejected with
+        // "profile 'default' is not configured for this AppUI session".
         let profile_id = TransportProfileId::new(
-            std::env::var("OCTOS_PROFILE_ID").unwrap_or_else(|_| "default".to_string()),
+            std::env::var("OCTOS_PROFILE_ID").unwrap_or_else(|_| {
+                if stdio.is_some() {
+                    "_main".to_string()
+                } else {
+                    "default".to_string()
+                }
+            }),
         );
         TransportConfig {
             base_url,
@@ -4000,7 +4011,7 @@ impl App {
             cursor_file: Self::cursor_file_path(),
             requested_capabilities: Capabilities::requested(),
             workspace_cwd: Self::current_workspace_cwd(),
-            stdio: Self::stdio_spawn(),
+            stdio,
         }
     }
 
@@ -4011,6 +4022,30 @@ impl App {
         std::env::var("HOME")
             .ok()
             .map(|h| std::path::PathBuf::from(h).join("a2app-cursors.json"))
+    }
+
+    /// Locate the embedded octos kernel binary: (1) the APK-bundled lib in our
+    /// nativeLibraryDir, (2) a staged copy in the app's private files dir
+    /// (used by /system/priv-app installs — see docs/SYSTEM-APP.md).
+    #[cfg(target_os = "android")]
+    fn find_embedded_kernel(
+        lib_dir: &std::path::Path,
+        home: &std::path::Path,
+    ) -> Option<std::path::PathBuf> {
+        [lib_dir.join("liboctos.so"), home.join(".bin/liboctos.so")]
+            .into_iter()
+            .find(|p| p.exists())
+    }
+
+    /// True when an embedded kernel is available — the app then talks to a
+    /// trusted local process over stdio and needs NO HTTP auth (see the boot
+    /// decision in `handle_startup`).
+    #[cfg(target_os = "android")]
+    fn has_embedded_kernel() -> bool {
+        let home = std::path::PathBuf::from("/data/user/0/dev.makepad.octos_watch/files/octos-home");
+        Self::android_native_lib_dir()
+            .map(|lib_dir| Self::find_embedded_kernel(&lib_dir, &home).is_some())
+            .unwrap_or(false)
     }
 
     /// Build the stdio-transport spawn spec. On Android the app runs the
@@ -4027,14 +4062,7 @@ impl App {
     fn stdio_spawn() -> Option<StdioSpawn> {
         let lib_dir = Self::android_native_lib_dir()?;
         let home = std::path::PathBuf::from("/data/user/0/dev.makepad.octos_watch/files/octos-home");
-        // Kernel search order: (1) the APK-bundled lib in our nativeLibraryDir,
-        // (2) a staged copy in the app's private files dir (used by
-        // /system/priv-app installs — see docs/SYSTEM-APP.md).
-        let staged = home.join(".bin/liboctos.so");
-        let Some(program) = [lib_dir.join("liboctos.so"), staged]
-            .into_iter()
-            .find(|p| p.exists())
-        else {
+        let Some(program) = Self::find_embedded_kernel(&lib_dir, &home) else {
             log::warn!(
                 "stdio: bundled octos not found under {}; using WebSocket transport",
                 lib_dir.display()
@@ -6319,6 +6347,16 @@ impl MatchEvent for App {
         // Auth resolves silently — stored bearer > background solo sign-in
         // against the configured (or default on-device) server. Provisioning
         // stays available via the `makepad.APP_CONFIG` intent extra.
+        // EMBEDDED KERNEL short-circuit: when liboctos.so is bundled/staged,
+        // the app talks to a trusted local process over stdio — no bearer, no
+        // solo sign-in. Without this, boot fell through to auto_solo_login,
+        // which POSTs http://127.0.0.1:50080/api/auth/solo — a port nothing
+        // listens on in stdio mode — so sign-in always failed, `clear_chat`
+        // never ran, no sessions were created, and every composer submit was
+        // silently dropped (dead app on a fresh embedded-kernel install).
+        #[cfg(target_os = "android")]
+        let authed = Self::has_embedded_kernel() || self.boot_is_authed();
+        #[cfg(not(target_os = "android"))]
         let authed = self.boot_is_authed();
         self.show_login(cx, false);
         // W04 / M2 — make sure the chat_screen / content_screen pair
