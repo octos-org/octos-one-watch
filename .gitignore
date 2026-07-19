@@ -6,6 +6,7 @@
 # Build artifacts
 target/
 app/target/
+dist/
 *.apk
 *.unaligned.apk
 

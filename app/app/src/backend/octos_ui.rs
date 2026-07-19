@@ -476,6 +476,27 @@ impl OctosUiAgent {
                     }]
                 })
                 .unwrap_or_default(),
+            // The streamed deltas are best-effort. Once octos confirms the
+            // durable assistant row, replace the accumulated text with the
+            // authoritative full content before TurnCompleted consumes it.
+            UiNotification::MessagePersisted(ev) => {
+                let Some(turn_id) = ev.turn_id else {
+                    return Vec::new();
+                };
+                let Some(text) = ev.content else {
+                    return Vec::new();
+                };
+                if ev.role != "assistant" {
+                    return Vec::new();
+                }
+                self.prompt_ids
+                    .get(&turn_id)
+                    .copied()
+                    .map(|pid| {
+                        vec![AgentEvent::TextAuthoritative { prompt_id: pid, text }]
+                    })
+                    .unwrap_or_default()
+            }
             UiNotification::TurnCompleted(ev) => self
                 .prompt_ids
                 .remove(&ev.turn_id)
@@ -532,7 +553,6 @@ impl OctosUiAgent {
             | UiNotification::VisualSucceeded(_)
             | UiNotification::VisualFailed(_)
             | UiNotification::VoiceExit(_)
-            | UiNotification::MessagePersisted(_)
             | UiNotification::TurnSpawnComplete(_)
             | UiNotification::FileAttached(_)
             | UiNotification::SessionEventBridged(_)
@@ -554,7 +574,10 @@ impl OctosUiAgent {
             // 2026-07 protocol catch-up: no plan pane / voice surface here.
             | UiNotification::PlanUpdated(_)
             | UiNotification::VoiceAudioChunk(_)
-            | UiNotification::Envelope(_) => Vec::new(),
+            | UiNotification::Envelope(_)
+            // V2 is capability-gated; this v1 client does not request it.
+            // Keep the explicit arm so dependency-head updates still compile.
+            | UiNotification::EnvelopeV2(_) => Vec::new(),
         }
     }
 }

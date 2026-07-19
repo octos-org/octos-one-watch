@@ -492,6 +492,10 @@ fn apply_protocol(state: &mut AppState, cursor: Option<UiCursor>, n: UiNotificat
         UiNotification::VoiceAudioChunk(_) => {}
         // Transport-level wrapper; the ws layer unwraps before folding.
         UiNotification::Envelope(_) => {}
+        // Stage-1 projection is capability-gated. This v1 client does not
+        // request it, so it remains a transport-level no-op if received from
+        // a newer dependency/server combination.
+        UiNotification::EnvelopeV2(_) => {}
         // 2026-07 protocol catch-up: model-authored plan checklists have no
         // surface in octos-app (the AMA routes to app cards, not plans).
         UiNotification::PlanUpdated(_) => {}

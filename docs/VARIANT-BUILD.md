@@ -9,14 +9,15 @@ toolchain, `liboctos.so`, and APK build are unchanged; follow
 ```bash
 cd app
 RUSTFLAGS="-Cprofile-use=$PWD/../aichat/libs/box3d/box3d.profdata" \
-MAKEPAD_ANDROID_EXTRA_LIBS="liboctos.so=/ABS/octos/target/x86_64-linux-android/release/octos" \
-cargo makepad android --abi=x86_64 \
+MAKEPAD_ANDROID_EXTRA_LIBS="liboctos.so=/ABS/octos/target/armv7-linux-androideabi/release/octos" \
+cargo makepad android --abi=armv7 \
   --package-name=dev.makepad.PACKAGE --app-label="LABEL" \
   build -p octos-app --release
 ```
 
-(substitute this variant's PACKAGE/LABEL from the README; for a phone use
-`--abi=aarch64`). The Rust client hardcodes its octos-home under
+Substitute this variant's PACKAGE/LABEL from the README and select the ABI from
+`adb shell getprop ro.product.cpu.abi`; use the mapping table in the Android
+build guide. The Rust client hardcodes its octos-home under
 `/data/user/0/<package>/…`, so the `--package-name` MUST match the package id
 this repo's `app/src/main.rs` was written for — don't mix flags.
 

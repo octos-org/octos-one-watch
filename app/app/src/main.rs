@@ -6592,6 +6592,35 @@ impl AppMain for App {
                             cx.redraw_all();
                         }
                     }
+                    AgentEvent::TextAuthoritative { prompt_id, text } => {
+                        // A durable assistant row supersedes best-effort delta
+                        // accumulation. Preserve the same routing guards as
+                        // TextDelta, but replace rather than append.
+                        if Some(prompt_id) == self.cancelled_ama {
+                            continue;
+                        }
+                        if Some(prompt_id) == self.ama_prompt {
+                            self.ama_text = text;
+                            continue;
+                        }
+                        if let Some(i) = self.app_of_prompt(prompt_id) {
+                            if i != self.foreground {
+                                self.apps[i].has_updates = true;
+                                self.tabs_dirty = true;
+                                continue;
+                            }
+                        }
+                        {
+                            let mut data = CHAT_DATA.write().unwrap();
+                            data.streaming_text = text;
+                        }
+                        self.stream_dirty = true;
+                        if self.stream_tick.is_empty() {
+                            self.stream_tick = cx.start_interval(0.1);
+                            self.stream_dirty = false;
+                            cx.redraw_all();
+                        }
+                    }
                     AgentEvent::ThinkingDelta { prompt_id, text } => {
                         if Some(prompt_id) == self.ama_prompt {
                             continue;
