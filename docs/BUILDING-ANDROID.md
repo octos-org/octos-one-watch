@@ -116,15 +116,33 @@ The APK bundles the octos kernel as `liboctos.so`. Build it for Android from
 `api,git,ast`, using the Rust target selected above. For the OWW212:
 
 ```bash
+# Makepad ships a compact NDK. Point Cargo and crates that compile C/C++
+# directly at its LLVM tools; installing the Rust target alone is not enough.
+export ANDROID_API=24
+export NDK_TOOLCHAIN="$PWD/makepad/tools/cargo_makepad/android_33_linux_x64/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64"
+export ANDROID_CC="$NDK_TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang"
+export ANDROID_CXX="$NDK_TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++"
+export ANDROID_AR="$NDK_TOOLCHAIN/bin/llvm-ar"
+export ANDROID_RANLIB="$NDK_TOOLCHAIN/bin/llvm-ranlib"
+
+test -x "$ANDROID_CC" || { echo "Android clang not found: $ANDROID_CC" >&2; exit 1; }
+
+export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$ANDROID_CC"
+export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_AR="$ANDROID_AR"
+export CC_armv7_linux_androideabi="$ANDROID_CC"
+export CXX_armv7_linux_androideabi="$ANDROID_CXX"
+export AR_armv7_linux_androideabi="$ANDROID_AR"
+export RANLIB_armv7_linux_androideabi="$ANDROID_RANLIB"
+
 cd octos
 cargo build --target armv7-linux-androideabi --release \
   -p octos-cli --features "api,git,ast"
 cd ..
 ```
 
-This produces `octos/target/armv7-linux-androideabi/release/octos`. The Android
-linker environment must point at the NDK clang for the selected API/ABI; see the
-Makepad toolchain directory installed in step 0.
+This produces `octos/target/armv7-linux-androideabi/release/octos`. The compiler
+wrapper uses Android API 24, below the verified watch's API 30. For another ABI,
+change both the Rust target and the compiler/env-variable prefixes consistently.
 
 ## 4. Build the APK
 

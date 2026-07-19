@@ -25,8 +25,8 @@ use octos_core::app_ui::{
     AppUiSubmitPrompt as TurnStartParams,
 };
 use octos_core::ui_protocol::{
-    ApprovalDecision, ApprovalId, ApprovalRespondParams, ReasoningEffortLevel, TaskOutputReadParams,
-    UiCursor,
+    ApprovalDecision, ApprovalId, ApprovalRespondParams, MessagePersistedEvent,
+    ReasoningEffortLevel, TaskOutputReadParams, UiCursor,
 };
 use octos_core::{ui_protocol::TurnId, SessionKey};
 use tokio::runtime::Runtime;
@@ -45,6 +45,23 @@ pub struct SessionResumeHydrated {
     /// `(role, content)` rows in seq order, roles as the wire sends them
     /// ("user" / "assistant" / other — the App filters).
     pub messages: Vec<(String, String)>,
+}
+
+fn translate_persisted_message(
+    prompt_ids: &HashMap<TurnId, PromptId>,
+    ev: MessagePersistedEvent,
+) -> Vec<AgentEvent> {
+    if ev.role != "assistant" {
+        return Vec::new();
+    }
+    let (Some(turn_id), Some(text)) = (ev.turn_id, ev.content) else {
+        return Vec::new();
+    };
+    prompt_ids
+        .get(&turn_id)
+        .copied()
+        .map(|prompt_id| vec![AgentEvent::TextAuthoritative { prompt_id, text }])
+        .unwrap_or_default()
 }
 
 /// `Agent` implementation backed by the Octos UI Protocol over WebSocket.
@@ -480,22 +497,7 @@ impl OctosUiAgent {
             // durable assistant row, replace the accumulated text with the
             // authoritative full content before TurnCompleted consumes it.
             UiNotification::MessagePersisted(ev) => {
-                let Some(turn_id) = ev.turn_id else {
-                    return Vec::new();
-                };
-                let Some(text) = ev.content else {
-                    return Vec::new();
-                };
-                if ev.role != "assistant" {
-                    return Vec::new();
-                }
-                self.prompt_ids
-                    .get(&turn_id)
-                    .copied()
-                    .map(|pid| {
-                        vec![AgentEvent::TextAuthoritative { prompt_id: pid, text }]
-                    })
-                    .unwrap_or_default()
+                translate_persisted_message(&self.prompt_ids, ev)
             }
             UiNotification::TurnCompleted(ev) => self
                 .prompt_ids
@@ -860,5 +862,79 @@ impl ApprovalHandle {
                 outcome,
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use octos_core::ui_protocol::{MessagePersistedSource, UiCursor};
+
+    fn persisted_event(
+        turn_id: Option<TurnId>,
+        role: &str,
+        content: Option<&str>,
+    ) -> MessagePersistedEvent {
+        MessagePersistedEvent {
+            session_id: SessionKey("local:test".into()),
+            topic: None,
+            turn_id,
+            thread_id: None,
+            seq: 1,
+            role: role.into(),
+            message_id: "message-1".into(),
+            client_message_id: None,
+            source: MessagePersistedSource::Assistant,
+            cursor: UiCursor {
+                stream: "local:test".into(),
+                seq: 1,
+            },
+            persisted_at: Utc::now(),
+            media: Vec::new(),
+            content: content.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn persisted_assistant_content_becomes_authoritative_text() {
+        let turn_id = TurnId::new();
+        let prompt_id = PromptId::new();
+        let prompt_ids = HashMap::from([(turn_id.clone(), prompt_id)]);
+
+        let events = translate_persisted_message(
+            &prompt_ids,
+            persisted_event(Some(turn_id), "assistant", Some("complete card")),
+        );
+
+        assert!(matches!(
+            events.as_slice(),
+            [AgentEvent::TextAuthoritative {
+                prompt_id: actual_prompt_id,
+                text
+            }] if *actual_prompt_id == prompt_id && text == "complete card"
+        ));
+    }
+
+    #[test]
+    fn persisted_non_assistant_or_incomplete_event_is_ignored() {
+        let turn_id = TurnId::new();
+        let prompt_ids = HashMap::from([(turn_id.clone(), PromptId::new())]);
+
+        assert!(translate_persisted_message(
+            &prompt_ids,
+            persisted_event(Some(turn_id.clone()), "user", Some("prompt")),
+        )
+        .is_empty());
+        assert!(translate_persisted_message(
+            &prompt_ids,
+            persisted_event(Some(turn_id), "assistant", None),
+        )
+        .is_empty());
+        assert!(translate_persisted_message(
+            &prompt_ids,
+            persisted_event(None, "assistant", Some("orphan")),
+        )
+        .is_empty());
     }
 }

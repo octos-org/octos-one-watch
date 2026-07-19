@@ -21,6 +21,9 @@ pub use octos_core::ui_protocol::UI_PROTOCOL_FEATURE_CONTEXT_LIFECYCLE_V1 as CON
 // see octos-core ui_protocol.rs:117 — gates `session/hydrate` (chat-history
 // reload for session resume).
 pub use octos_core::ui_protocol::UI_PROTOCOL_FEATURE_SESSION_HYDRATE_V1 as SESSION_HYDRATE_V1;
+// see octos-core ui_protocol.rs:125 — gates durable assistant content used to
+// repair a best-effort `message/delta` stream before turn completion.
+pub use octos_core::ui_protocol::UI_PROTOCOL_FEATURE_MESSAGE_PERSISTED_V1 as MESSAGE_PERSISTED_V1;
 // see octos-core ui_protocol.rs:195 — strict opt-in gate for the aux
 // REST-over-WS methods (`session/list`, `session/delete`, …). Without it the
 // server rejects `session/list` with method_not_supported.
@@ -38,6 +41,9 @@ pub struct Capabilities {
     /// `session/hydrate` — authoritative chat-history reload used when
     /// resuming a session from the sidebar.
     pub session_hydrate: bool,
+    /// `message/persisted` — durable full assistant text used to replace a
+    /// potentially incomplete delta stream before the UI stores a card.
+    pub message_persisted: bool,
     /// Aux REST-over-WS methods (`session/list` etc.) — strict opt-in; the
     /// sidebar session list stays empty without it.
     pub auxiliary_rest_to_ws: bool,
@@ -55,6 +61,7 @@ impl Capabilities {
             session_workspace_cwd: true,
             context_lifecycle: true,
             session_hydrate: true,
+            message_persisted: true,
             auxiliary_rest_to_ws: true,
             raw: BTreeMap::new(),
         }
@@ -77,6 +84,9 @@ impl Capabilities {
         }
         if self.session_hydrate {
             features.push(SESSION_HYDRATE_V1.to_owned());
+        }
+        if self.message_persisted {
+            features.push(MESSAGE_PERSISTED_V1.to_owned());
         }
         if self.auxiliary_rest_to_ws {
             features.push(AUXILIARY_REST_TO_WS_V1.to_owned());
@@ -115,6 +125,7 @@ impl Capabilities {
                 SESSION_WORKSPACE_CWD_V1 => caps.session_workspace_cwd = true,
                 CONTEXT_LIFECYCLE_V1 => caps.context_lifecycle = true,
                 SESSION_HYDRATE_V1 => caps.session_hydrate = true,
+                MESSAGE_PERSISTED_V1 => caps.message_persisted = true,
                 AUXILIARY_REST_TO_WS_V1 => caps.auxiliary_rest_to_ws = true,
                 _ => {}
             }
@@ -148,6 +159,7 @@ impl Capabilities {
                         SESSION_WORKSPACE_CWD_V1 => out.session_workspace_cwd = true,
                         CONTEXT_LIFECYCLE_V1 => out.context_lifecycle = true,
                         SESSION_HYDRATE_V1 => out.session_hydrate = true,
+                        MESSAGE_PERSISTED_V1 => out.message_persisted = true,
                         AUXILIARY_REST_TO_WS_V1 => out.auxiliary_rest_to_ws = true,
                         _ => {}
                     }
@@ -172,6 +184,7 @@ mod tests {
                     "approval.typed.v1",
                     "pane.snapshots.v1",
                     "session.workspace_cwd.v1",
+                    "event.message_persisted.v1",
                     "future.v1"
                 ]
             }
@@ -180,6 +193,7 @@ mod tests {
         assert!(caps.typed_approvals);
         assert!(caps.pane_snapshots);
         assert!(caps.session_workspace_cwd);
+        assert!(caps.message_persisted);
         assert!(caps.raw.contains_key("future.v1"));
     }
 
@@ -189,13 +203,15 @@ mod tests {
             "capabilities": {
                 "approval.typed.v1": true,
                 "pane.snapshots.v1": false,
-                "session.workspace_cwd.v1": true
+                "session.workspace_cwd.v1": true,
+                "event.message_persisted.v1": true
             }
         });
         let caps = Capabilities::parse(&v);
         assert!(caps.typed_approvals);
         assert!(!caps.pane_snapshots);
         assert!(caps.session_workspace_cwd);
+        assert!(caps.message_persisted);
     }
 
     #[test]
@@ -204,7 +220,7 @@ mod tests {
         caps.raw.insert("future.v1".into(), Value::Bool(true));
         assert_eq!(
             caps.handshake_header_value().as_deref(),
-            Some("approval.typed.v1, pane.snapshots.v1, session.workspace_cwd.v1, context.lifecycle.v1, state.session_hydrate.v1, auxiliary.rest_to_ws.v1, future.v1")
+            Some("approval.typed.v1, pane.snapshots.v1, session.workspace_cwd.v1, context.lifecycle.v1, state.session_hydrate.v1, event.message_persisted.v1, auxiliary.rest_to_ws.v1, future.v1")
         );
     }
 }

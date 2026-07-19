@@ -29,9 +29,11 @@ variants theme it, apply the bundled patch to the `octos-one-buildtool` clone
 after step 1 of the upstream clone layout:
 
 ```bash
-cd octos-one/makepad            # the octos-one-buildtool clone
-git apply ../patches/0001-composer-mono-theme.patch
-cargo install --path tools/cargo_makepad --force   # reinstall the tool
+WATCH_ROOT=$(git rev-parse --show-toplevel)
+PATCH="$WATCH_ROOT/patches/0001-composer-mono-theme.patch"
+git -C "$WATCH_ROOT/makepad" apply "$PATCH"
+RUSTFLAGS="-Cprofile-use=$WATCH_ROOT/aichat/libs/box3d/box3d.profdata" \
+  cargo install --path "$WATCH_ROOT/makepad/tools/cargo_makepad" --force
 ```
 
 The patch is additive and backward-compatible: it reads
