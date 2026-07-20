@@ -6514,10 +6514,9 @@ impl MatchEvent for App {
         // initial state is whatever the DSL declared (`active: false`).
         self.apply_glass_opacity(cx, DEFAULT_GLASS_OPACITY);
 
-        // WATCH: the square screen is 480px — below the 600px narrow-width
-        // threshold — so the sidebar + glass toolbar must be collapsed from
-        // the FIRST frame, not only after the first navigation (the ☰ button
-        // still brings the sidebar back as an overlay).
+        // WATCH: Android always uses the compact shell (the verified OWW212 is
+        // 372px wide). Collapse the sidebar + glass toolbar from the FIRST
+        // frame, not only after the first navigation.
         self.collapse_sidebar_if_narrow(cx);
 
         // ---- W08 — boot decision: LoginScreen vs Home ---------------------
