@@ -2042,11 +2042,13 @@ script_mod! {
                 // positioned arg must be NSWindowBelow/-1 or NSWindowAbove/1,
                 // not 0). See issues/aichat-liquid-glass-backdrop-platform-bug.md
                 window.macos: MacosWindowConfig{chrome: MacosWindowChrome.Borderless resizable: true}
-                window.inner_size: vec2(900, 700)
+                // Watch-first preview size. Android still uses the device
+                // surface; this makes desktop runs exercise the compact shell.
+                window.inner_size: vec2(360, 480)
                 window.title: " "
                 body +: {
                     flow: Overlay
-                    padding: 3
+                    padding: 0
                     spacing: 0
                     draw_bg.color: #00000000
 
@@ -2290,7 +2292,7 @@ script_mod! {
                         }
                     }
 
-                    SolidView {
+                    sidebar_divider := SolidView {
                         width: 1
                         height: Fill
                         draw_bg.color: #xEAD8B81E
@@ -2510,12 +2512,13 @@ script_mod! {
                                 height: Fill
                                 flow: Down
                                 align: Align{x: 0.5 y: 0.46}
-                                spacing: 18
+                                padding: Inset{left: 16 right: 16}
+                                spacing: 12
 
                                 Label {
                                     text: "我们该做什么？"
                                     draw_text.color: #xF3E3C7
-                                    draw_text.text_style.font_size: 27
+                                    draw_text.text_style.font_size: 22
                                 }
 
                                 Label {
@@ -2525,7 +2528,7 @@ script_mod! {
                                     // already fits.
                                     width: Fill
                                     align: Align{x: 0.5}
-                                    text: "输入自然语言，生成可交互的 Makepad diagram。"
+                                    text: "输入文字，生成交互卡片。"
                                     draw_text.color: #xCDBF9FAA
                                     draw_text.text_style.font_size: 12
                                 }
@@ -2621,8 +2624,8 @@ script_mod! {
                                 height: Fit
                                 new_batch: true
                                 flow: Down
-                                margin: Inset{left: 12 right: 12}
-                                padding: Inset{left: 14 top: 5 right: 12 bottom: 5}
+                                margin: Inset{left: 8 right: 8 bottom: 8}
+                                padding: Inset{left: 10 top: 4 right: 8 bottom: 4}
                                 spacing: 2
                                 draw_bg +: {
                                     tint_color: #x0B4035
@@ -2888,6 +2891,13 @@ fn should_start_window_drag(abs: DVec2, size: DVec2) -> bool {
         && abs.x > RESIZE_EDGE_MARGIN
         && abs.x < size.x - RESIZE_EDGE_MARGIN
         && abs.x < size.x - RIGHT_TOOLBAR_WIDTH
+}
+
+const WATCH_SHELL_MAX_WIDTH: f64 = 600.0;
+
+fn use_watch_shell(window_width: f64) -> bool {
+    cfg!(target_os = "android")
+        || (window_width > 0.0 && window_width < WATCH_SHELL_MAX_WIDTH)
 }
 
 // Diagram-fence safety scanner moved to `app/diagram_safety.rs` — same
@@ -5145,20 +5155,22 @@ impl App {
     // navigate_to_coding / navigate_to_producer removed with the Coding /
     // Studio / Slides / Sites navs (unsupported in this build).
 
-    /// Phone-width helper: the desktop shell keeps sidebar and chat side by
-    /// side, which pushes the chat off-screen on a portrait phone. Collapse
-    /// the sidebar after sidebar-driven navigation when the window is
-    /// narrow; the top-bar ☰ button brings it back.
+    /// The watch build always uses the compact shell on Android. A narrow
+    /// desktop window uses the same layout so it can be checked without a
+    /// device or emulator.
     fn collapse_sidebar_if_narrow(&self, cx: &mut Cx) {
         let w = self
             .ui
             .window(cx, ids!(main_window))
             .get_inner_size(cx)
             .x;
-        if w > 0.0 && w < 600.0 {
+        if use_watch_shell(w) {
             self.ui.view(cx, ids!(sidebar)).set_visible(cx, false);
+            self.ui
+                .view(cx, ids!(sidebar_divider))
+                .set_visible(cx, false);
             // The glass-opacity toolbar is a desktop nicety; its 318pt
-            // fixed width alone overflows a phone top bar.
+            // fixed width alone overflows a watch top bar.
             self.ui.view(cx, ids!(glass_toolbar)).set_visible(cx, false);
             cx.redraw_all();
         }
@@ -7179,9 +7191,19 @@ mod tests {
 
     use super::{
         assistant_message_is_safe_for_history, assistant_message_is_safe_to_store,
-        glass_opacity_values, should_start_window_drag, DEFAULT_GLASS_OPACITY,
+        glass_opacity_values, should_start_window_drag, use_watch_shell, DEFAULT_GLASS_OPACITY,
         MAX_GLASS_OPACITY, MIN_GLASS_OPACITY,
     };
+
+    #[test]
+    fn watch_shell_activates_for_compact_desktop_preview() {
+        assert!(use_watch_shell(320.0));
+        assert!(use_watch_shell(599.0));
+        if !cfg!(target_os = "android") {
+            assert!(!use_watch_shell(600.0));
+            assert!(!use_watch_shell(900.0));
+        }
+    }
 
     #[test]
     fn aichat_glass_opacity_slider_contract() {

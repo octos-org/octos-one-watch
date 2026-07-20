@@ -100,11 +100,21 @@ git -C octos checkout 81ca39e900f49f777d54a9b109c406b8a3641431
 ## 2. Install `cargo-makepad`
 
 ```bash
+# The watch composer lives in cargo-makepad's Android Java activity. Apply the
+# repository patch before installing the build tool; otherwise the APK retains
+# the phone-width [new][switch][QR][input][send] row.
+WATCH_ROOT="$PWD"
+git -C makepad apply "$WATCH_ROOT/patches/0001-composer-mono-theme.patch"
+
 # The build tool. The PGO profdata rustflag ships as a RELATIVE path and breaks
 # from another CWD, so override it with an absolute one for the install:
 RUSTFLAGS="-Cprofile-use=$PWD/aichat/libs/box3d/box3d.profdata" \
   cargo install --path makepad/tools/cargo_makepad --force
 ```
+
+The manifest sets `makepad.COMPOSER_LAYOUT=watch`. The patched build tool reads
+that key and emits `[menu][input][send]`; rebuilding the app with an older or
+unpatched `cargo-makepad` silently restores the unusable phone composer.
 
 Then, if you don't already have the NDK, `cargo makepad android install-toolchain`
 (see the ⚠️ above).

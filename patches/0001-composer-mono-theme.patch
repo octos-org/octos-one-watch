@@ -1,56 +1,99 @@
 diff --git a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
-index aa07f7022..a2aaad3a1 100644
+index 9dda585..fdee54b 100644
 --- a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
 +++ b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
-@@ -2480,8 +2480,24 @@ public class MakepadActivity
+@@ -91,6 +91,7 @@ import android.widget.FrameLayout;
+ import android.widget.ImageView;
+ import android.widget.LinearLayout;
+ import android.widget.EditText;
++import android.widget.PopupMenu;
+ import android.widget.TextView;
+ import android.view.Gravity;
+ import android.util.TypedValue;
+@@ -2673,8 +2674,33 @@ public class MakepadActivity
      // dispatched by the Android view tree, so the pill consumes its own taps
      // *before* Makepad's routing runs (the full-screen card's PortalList can't
      // swallow them); taps outside the pill fall through to the card.
 +    //
-+    // Theme hook: an app can select the monochrome ("mono") composer look via
-+    // <meta-data android:name="makepad.COMPOSER_THEME" android:value="mono"/>
-+    // in its manifest (used by the e-ink variant). Absent = the default teal.
-+    private boolean composerThemeIsMono() {
++    // Apps can select a composer theme and layout through manifest metadata.
++    // Both hooks are optional, so existing cargo-makepad apps keep the stock
++    // teal, phone-width composer without changing their manifests.
++    private String composerMetaData(String key) {
 +        try {
-+            android.content.pm.ApplicationInfo ai = getPackageManager()
-+                .getApplicationInfo(getPackageName(),
-+                    android.content.pm.PackageManager.GET_META_DATA);
++            ApplicationInfo ai = getPackageManager().getApplicationInfo(
++                getPackageName(), PackageManager.GET_META_DATA);
 +            if (ai.metaData != null) {
-+                return "mono".equals(ai.metaData.getString("makepad.COMPOSER_THEME"));
++                return ai.metaData.getString(key, "");
 +            }
 +        } catch (Exception ignored) {}
-+        return false;
++        return "";
 +    }
++
++    private boolean composerThemeIsMono() {
++        return "mono".equals(composerMetaData("makepad.COMPOSER_THEME"));
++    }
++
++    private boolean composerLayoutIsWatch() {
++        return "watch".equals(composerMetaData("makepad.COMPOSER_LAYOUT"));
++    }
++
      private void setupComposerOverlay() {
          final float d = getResources().getDisplayMetrics().density;
 +        final boolean mono = composerThemeIsMono();
- 
++        final boolean watch = composerLayoutIsWatch();
+-
++
          mComposerOverlay = new FrameLayout(this);
          mComposerOverlay.setLayoutParams(new FrameLayout.LayoutParams(
-@@ -2498,9 +2514,9 @@ public class MakepadActivity
+@@ -2691,13 +2717,15 @@ public class MakepadActivity
          mComposerPill.setOrientation(LinearLayout.HORIZONTAL);
          mComposerPill.setGravity(Gravity.CENTER_VERTICAL);
          GradientDrawable pillBg = new GradientDrawable();
 -        pillBg.setColor(0xE60B4035);                    // ~90% opaque #0B4035
-+        pillBg.setColor(mono ? 0xE6FFFFFF : 0xE60B4035); // ~90% opaque (mono: white)
++        pillBg.setColor(mono ? 0xE6FFFFFF : 0xE60B4035); // ~90% opaque
          pillBg.setCornerRadius(24.0f * d);
 -        pillBg.setStroke(Math.max(1, (int) (1.5f * d)), 0x5572E4FF);
-+        pillBg.setStroke(Math.max(1, (int) (1.5f * d)), mono ? 0xFF000000 : 0x5572E4FF);
++        pillBg.setStroke(Math.max(1, (int) (1.5f * d)),
++            mono ? 0xFF000000 : 0x5572E4FF);
          mComposerPill.setBackground(pillBg);
-         int padH = (int) (16.0f * d);
-         int padV = (int) (8.0f * d);
-@@ -2533,8 +2549,8 @@ public class MakepadActivity
+-        int padH = (int) (16.0f * d);
+-        int padV = (int) (8.0f * d);
+-        mComposerPill.setPadding(padH, padV, (int) (8.0f * d), padV);
++        int padLeft = (int) ((watch ? 6.0f : 16.0f) * d);
++        int padRight = (int) ((watch ? 4.0f : 8.0f) * d);
++        int padV = (int) ((watch ? 4.0f : 8.0f) * d);
++        mComposerPill.setPadding(padLeft, padV, padRight, padV);
+         // Tap anywhere on the pill focuses the input + raises the keyboard;
+         // being clickable also stops card taps leaking through the pill band.
+         mComposerPill.setClickable(true);
+@@ -2713,8 +2741,8 @@ public class MakepadActivity
+             ViewGroup.LayoutParams.WRAP_CONTENT
+         );
+         pillLp.gravity = Gravity.BOTTOM;
+-        int side = (int) (12.0f * d);
+-        pillLp.setMargins(side, 0, side, (int) (12.0f * d));
++        int side = (int) ((watch ? 8.0f : 12.0f) * d);
++        pillLp.setMargins(side, 0, side, (int) ((watch ? 8.0f : 12.0f) * d));
+         mComposerPill.setLayoutParams(pillLp);
+-
++
+         // EditText: the SOLE IME client while the composer is up. Makepad keeps
+@@ -2726,9 +2754,11 @@ public class MakepadActivity
          // cargo-makepad javac runs under file.encoding=UTF-8, so the literal
          // UTF-8 source is decoded correctly.
          mComposerInput.setHint("问任何事…");
 -        mComposerInput.setHintTextColor(0x88F3E3C7);
 -        mComposerInput.setTextColor(0xFFF3E3C7);
+-        mComposerInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16.0f);
 +        mComposerInput.setHintTextColor(mono ? 0x88000000 : 0x88F3E3C7);
 +        mComposerInput.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
-         mComposerInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16.0f);
++        mComposerInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, watch ? 14.0f : 16.0f);
++        mComposerInput.setMinimumWidth(0);
++        mComposerInput.setPadding((int) (4.0f * d), 0, (int) (4.0f * d), 0);
          // Single line so the IME shows a "Send" action key (a multiline flag
          // turns it into a newline key). Prompts here are short.
-@@ -2563,7 +2579,7 @@ public class MakepadActivity
+         mComposerInput.setSingleLine(true);
+@@ -2756,10 +2786,10 @@ public class MakepadActivity
          // Send button — gold paper-plane glyph.
          TextView send = new TextView(this);
          send.setText("➤");                                    // ➤
@@ -58,8 +101,12 @@ index aa07f7022..a2aaad3a1 100644
 +        send.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
          send.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20.0f);
          send.setGravity(Gravity.CENTER);
-         int sendSize = (int) (40.0f * d);
-@@ -2584,7 +2600,7 @@ public class MakepadActivity
+-        int sendSize = (int) (40.0f * d);
++        int sendSize = (int) ((watch ? 36.0f : 40.0f) * d);
+         send.setLayoutParams(new LinearLayout.LayoutParams(sendSize, sendSize));
+         send.setClickable(true);
+         send.setFocusable(true);
+@@ -2777,7 +2807,7 @@ public class MakepadActivity
          int ctlSize = (int) (40.0f * d);
          TextView newAppBtn = new TextView(this);
          newAppBtn.setText("＋");
@@ -68,7 +115,7 @@ index aa07f7022..a2aaad3a1 100644
          newAppBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19.0f);
          newAppBtn.setGravity(Gravity.CENTER);
          newAppBtn.setLayoutParams(new LinearLayout.LayoutParams(ctlSize, ctlSize));
-@@ -2598,7 +2614,7 @@ public class MakepadActivity
+@@ -2791,7 +2821,7 @@ public class MakepadActivity
          });
          TextView switchBtn = new TextView(this);
          switchBtn.setText("⟳");
@@ -77,7 +124,7 @@ index aa07f7022..a2aaad3a1 100644
          switchBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19.0f);
          switchBtn.setGravity(Gravity.CENTER);
          switchBtn.setLayoutParams(new LinearLayout.LayoutParams(ctlSize, ctlSize));
-@@ -2614,7 +2630,7 @@ public class MakepadActivity
+@@ -2807,7 +2837,7 @@ public class MakepadActivity
          // showQrScanner). Sits left of the input: [＋][⟳][⛶][input][➤].
          TextView qrBtn = new TextView(this);
          qrBtn.setText("⛶");
@@ -86,7 +133,59 @@ index aa07f7022..a2aaad3a1 100644
          qrBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19.0f);
          qrBtn.setGravity(Gravity.CENTER);
          qrBtn.setLayoutParams(new LinearLayout.LayoutParams(ctlSize, ctlSize));
-@@ -2639,14 +2655,14 @@ public class MakepadActivity
+@@ -2820,9 +2850,47 @@ public class MakepadActivity
+             }
+         });
+-
++
+-        mComposerPill.addView(newAppBtn);
+-        mComposerPill.addView(switchBtn);
+-        mComposerPill.addView(qrBtn);
++        if (watch) {
++            // A watch cannot afford three fixed 40dp controls before the
++            // weighted input. Collapse those actions into one menu so the
++            // EditText always retains a useful width on a square display.
++            final TextView menuBtn = new TextView(this);
++            menuBtn.setText("...");
++            menuBtn.setContentDescription("App actions");
++            menuBtn.setTextColor(mono ? 0xFF000000 : 0xFFF3E3C7);
++            menuBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18.0f);
++            menuBtn.setGravity(Gravity.CENTER);
++            int menuSize = (int) (36.0f * d);
++            menuBtn.setLayoutParams(new LinearLayout.LayoutParams(menuSize, menuSize));
++            menuBtn.setClickable(true);
++            menuBtn.setFocusable(true);
++            menuBtn.setOnClickListener(new View.OnClickListener() {
++                @Override
++                public void onClick(View v) {
++                    PopupMenu popup = new PopupMenu(MakepadActivity.this, menuBtn);
++                    popup.getMenu().add(Menu.NONE, 1, 1, "New conversation");
++                    popup.getMenu().add(Menu.NONE, 2, 2, "Switch app");
++                    popup.getMenu().add(Menu.NONE, 3, 3, "Scan config QR");
++                    popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
++                        @Override
++                        public boolean onMenuItemClick(MenuItem item) {
++                            switch (item.getItemId()) {
++                                case 1: MakepadNative.onComposerNewApp(); return true;
++                                case 2: MakepadNative.onComposerSwitch(); return true;
++                                case 3: showQrScanner(); return true;
++                                default: return false;
++                            }
++                        }
++                    });
++                    popup.show();
++                }
++            });
++            mComposerPill.addView(menuBtn);
++        } else {
++            mComposerPill.addView(newAppBtn);
++            mComposerPill.addView(switchBtn);
++            mComposerPill.addView(qrBtn);
++        }
+         mComposerPill.addView(mComposerInput);
+         mComposerPill.addView(send);
+         mComposerOverlay.addView(mComposerPill);
+@@ -2832,19 +2900,20 @@ public class MakepadActivity
          // expanded, matching the app's composer_shown=true); tapping it expands.
          mComposerFab = new TextView(this);
          mComposerFab.setText("+");
@@ -100,7 +199,15 @@ index aa07f7022..a2aaad3a1 100644
 -        fabBg.setColor(0xE60B4035);                    // matches the pill teal
 -        fabBg.setStroke(Math.max(1, (int) (1.5f * d)), 0x5572E4FF);
 +        fabBg.setColor(mono ? 0xE6FFFFFF : 0xE60B4035); // matches the pill
-+        fabBg.setStroke(Math.max(1, (int) (1.5f * d)), mono ? 0xFF000000 : 0x5572E4FF);
++        fabBg.setStroke(Math.max(1, (int) (1.5f * d)),
++            mono ? 0xFF000000 : 0x5572E4FF);
          mComposerFab.setBackground(fabBg);
-         int fabSize = (int) (52.0f * d);
+-        int fabSize = (int) (52.0f * d);
++        int fabSize = (int) ((watch ? 48.0f : 52.0f) * d);
          FrameLayout.LayoutParams fabLp = new FrameLayout.LayoutParams(fabSize, fabSize);
+         fabLp.gravity = Gravity.BOTTOM | Gravity.END;
+-        int fabMargin = (int) (16.0f * d);
++        int fabMargin = (int) ((watch ? 10.0f : 16.0f) * d);
+         fabLp.setMargins(0, 0, fabMargin, fabMargin);
+         mComposerFab.setLayoutParams(fabLp);
+         mComposerFab.setClickable(true);

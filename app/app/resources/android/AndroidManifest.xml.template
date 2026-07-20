@@ -15,6 +15,9 @@
         android:persistent="true"
         tools:targetApi="{target_sdk_version}">
         <meta-data android:name="android.max_aspect" android:value="2.1" />
+        <!-- Activates the compact native composer supplied by the bundled
+             cargo-makepad patch: [menu] [input] [send]. -->
+        <meta-data android:name="makepad.COMPOSER_LAYOUT" android:value="watch" />
         <activity
             android:name=".{class_name}"
             android:configChanges="orientation|screenSize|keyboardHidden"
