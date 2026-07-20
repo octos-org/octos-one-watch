@@ -40,7 +40,7 @@ written into the on-device octos profile config and read by the embedded kernel.
 The same JSON payload can be applied via the launch intent (no scanning), which is
 how the flow is tested:
 ```bash
-adb shell am start -S -n dev.makepad.octos_app/.MakepadApp \
+adb shell am start -S -n dev.makepad.octos_watch/.MakepadApp \
     --es makepad.PROVISION_CONFIG '{"llm_family":"zai","llm_model":"glm-5.2","llm_key":"sk-XXXX"}'
 ```
 Server auth (`base_url|profile|token`) still has its own `makepad.APP_CONFIG`
