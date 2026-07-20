@@ -63,7 +63,7 @@ adb root && adb remount && adb reboot        # enable overlayfs
 adb root && adb remount                      # re-enable after the reboot
 
 # 1. slim APK: remove bundled libs, re-sign with the SAME debug keystore
-cp octos_app.apk slim.apk && zip -d slim.apk "lib/*"
+cp octoswatch.apk slim.apk && zip -d slim.apk "lib/*"
 java -jar $SDK/build-tools/33.0.1/lib/apksigner.jar sign \
   --ks makepad/tools/cargo_makepad/debug.keystore \
   --ks-key-alias androiddebugkey --ks-pass pass:android slim.apk

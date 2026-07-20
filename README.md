@@ -43,8 +43,8 @@ cargo makepad android --abi=armv7 \
 
 `arm64-v8a` maps to `aarch64`; `x86_64` maps to `x86_64`. The dependency
 revisions and non-root provisioning flow are pinned in the build guide.
-See [docs/TESTING-WATCH-UI.md](docs/TESTING-WATCH-UI.md) for desktop and Android
-emulator verification without the physical watch.
+See [docs/TESTING-WATCH-UI.md](docs/TESTING-WATCH-UI.md) for desktop, Android
+emulator, and OWW212 physical-device verification.
 
 ---
 

@@ -1,6 +1,6 @@
 # Building for Android
 
-How to build the `octos_app.apk` from a fresh clone, deploy it, and run it on a
+How to build the `octoswatch.apk` from a fresh clone, deploy it, and run it on a
 device. Do not assume the ABI: phones are commonly arm64, while some watches
 still report 32-bit ARM.
 
@@ -165,8 +165,8 @@ cargo makepad android --abi=armv7 \
 ```
 
 - Look for `Bundled extra native lib: liboctos.so` and `APK Build completed`.
-- Output: `app/target/android/makepad-android-apk/octos_app/apk/octos_app.apk`
-  (~74 MB). Verify: `unzip -l …/octos_app.apk | grep -E 'liboctos|libmakepad'`.
+- Output: `app/target/android/makepad-android-apk/octos_app/apk/octoswatch.apk`
+  (~74 MB). Verify: `unzip -l …/octoswatch.apk | grep -E 'liboctos|libmakepad'`.
 - Fast type-check without building the whole APK:
   `RUSTFLAGS="-Cprofile-use=$PWD/../aichat/libs/box3d/box3d.profdata" \
    cargo check --target armv7-linux-androideabi -p makepad-widgets`
@@ -178,7 +178,7 @@ cargo makepad android --abi=armv7 \
 ```bash
 cd ..   # repository root
 ADB=adb   # or /mnt/c/.../adb.exe on WSL
-$ADB install -r app/target/android/makepad-android-apk/octos_app/apk/octos_app.apk
+$ADB install -r app/target/android/makepad-android-apk/octos_app/apk/octoswatch.apk
 
 # launch. Extras (all optional):
 #   makepad.OCTOS_PROXY  http proxy for the LLM + data fetches (phones w/o direct net)
