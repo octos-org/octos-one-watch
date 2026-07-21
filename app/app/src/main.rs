@@ -2380,6 +2380,12 @@ script_mod! {
                                 }
 
                                 Label {
+                                    // Fill width lets the text wrap instead of
+                                    // hard-clipping at the screen edge (seen on
+                                    // the 480px watch); stays one line where it
+                                    // already fits.
+                                    width: Fill
+                                    align: Align{x: 0.5}
                                     text: "输入自然语言，生成可交互的 Makepad diagram。"
                                     draw_text.color: #xCDBF9FAA
                                     draw_text.text_style.font_size: 12
@@ -2670,6 +2676,7 @@ script_mod! {
 pub static CHAT_DATA: std::sync::RwLock<ChatData> = std::sync::RwLock::new(ChatData {
     messages: Vec::new(),
     streaming_text: String::new(),
+    authoritative_text: String::new(),
     thinking_text: String::new(),
     is_streaming: false,
     a2app_state: std::collections::BTreeMap::new(),
@@ -3144,6 +3151,13 @@ pub enum ChatRole {
 pub struct ChatData {
     pub messages: Vec<ChatMessage>,
     pub streaming_text: String,
+    /// The kernel's durably-stored text for the in-flight turn, when it has
+    /// sent one (`message/persisted`). Preferred over `streaming_text` at turn
+    /// end: a `message/delta` lost in transit leaves `streaming_text` short by
+    /// that chunk with its edges spliced mid-token, which turns a valid card
+    /// DSL into one that cannot parse. Empty when the backend sends no
+    /// authoritative copy, in which case the accumulation stands.
+    pub authoritative_text: String,
     pub thinking_text: String,
     pub is_streaming: bool,
     /// Per-card A2App/Splash state: card (message index) → `CardState`. Each
@@ -4338,6 +4352,7 @@ impl App {
             let mut data = CHAT_DATA.write().unwrap();
             data.messages.clear();
             data.streaming_text.clear();
+            data.authoritative_text.clear();
             data.thinking_text.clear();
             data.is_streaming = false;
             data.a2app_state.clear();
@@ -4396,6 +4411,7 @@ impl App {
         let mut data = CHAT_DATA.write().unwrap();
         data.messages.clear();
         data.streaming_text.clear();
+        data.authoritative_text.clear();
         data.thinking_text.clear();
         data.is_streaming = false;
         data.a2app_state.clear();
@@ -4426,6 +4442,7 @@ impl App {
             data.messages = a.saved_messages.clone();
             data.a2app_state = a.saved_a2app.clone();
             data.streaming_text.clear();
+            data.authoritative_text.clear();
             data.thinking_text.clear();
             data.is_streaming = false;
             data.save_to_disk();
@@ -4618,6 +4635,7 @@ impl App {
                 text: text.clone(),
             });
             data.streaming_text.clear();
+            data.authoritative_text.clear();
             data.thinking_text.clear();
             data.is_streaming = true;
             data.messages.len() + 1
@@ -4702,6 +4720,7 @@ impl App {
             self.pending_intent = None;
             let mut data = CHAT_DATA.write().unwrap();
             data.streaming_text.clear();
+            data.authoritative_text.clear();
             data.thinking_text.clear();
             data.is_streaming = false;
             drop(data);
@@ -5948,6 +5967,7 @@ impl MatchEvent for App {
                             let mut data = CHAT_DATA.write().unwrap();
                             data.messages.clear();
                             data.streaming_text.clear();
+                            data.authoritative_text.clear();
                             data.thinking_text.clear();
                             data.is_streaming = false;
                             data.a2app_state.clear();
@@ -6552,6 +6572,22 @@ impl AppMain for App {
                             .label(cx, ids!(status_label))
                             .set_text(cx, &format!("Error: {}", error));
                     }
+                    AgentEvent::TextAuthoritative { prompt_id, text } => {
+                        // Same guards as TextDelta: the AMA's stream is routing
+                        // metadata and a background app must not touch the
+                        // shared surface.
+                        if Some(prompt_id) == self.cancelled_ama
+                            || Some(prompt_id) == self.ama_prompt
+                        {
+                            continue;
+                        }
+                        if let Some(i) = self.app_of_prompt(prompt_id) {
+                            if i != self.foreground {
+                                continue;
+                            }
+                        }
+                        CHAT_DATA.write().unwrap().authoritative_text = text;
+                    }
                     AgentEvent::TextDelta { prompt_id, text } => {
                         // A cancelled AMA turn's late deltas are stale routing
                         // metadata — drop them (they would otherwise fall past
@@ -6584,35 +6620,6 @@ impl AppMain for App {
                         {
                             let mut data = CHAT_DATA.write().unwrap();
                             data.streaming_text.push_str(&text);
-                        }
-                        self.stream_dirty = true;
-                        if self.stream_tick.is_empty() {
-                            self.stream_tick = cx.start_interval(0.1);
-                            self.stream_dirty = false;
-                            cx.redraw_all();
-                        }
-                    }
-                    AgentEvent::TextAuthoritative { prompt_id, text } => {
-                        // A durable assistant row supersedes best-effort delta
-                        // accumulation. Preserve the same routing guards as
-                        // TextDelta, but replace rather than append.
-                        if Some(prompt_id) == self.cancelled_ama {
-                            continue;
-                        }
-                        if Some(prompt_id) == self.ama_prompt {
-                            self.ama_text = text;
-                            continue;
-                        }
-                        if let Some(i) = self.app_of_prompt(prompt_id) {
-                            if i != self.foreground {
-                                self.apps[i].has_updates = true;
-                                self.tabs_dirty = true;
-                                continue;
-                            }
-                        }
-                        {
-                            let mut data = CHAT_DATA.write().unwrap();
-                            data.streaming_text = text;
                         }
                         self.stream_dirty = true;
                         if self.stream_tick.is_empty() {
@@ -6724,7 +6731,8 @@ impl AppMain for App {
                         // steal the foreground's streaming_text or render into
                         // CHAT_DATA. Clear that app's prompt, badge it, skip —
                         // its card is on the server ledger and hydrates on switch.
-                        if let Some(i) = self.app_of_prompt(prompt_id) {
+                        let prompt_owner = self.app_of_prompt(prompt_id);
+                        if let Some(i) = prompt_owner {
                             if i != self.foreground {
                                 self.apps[i].current_prompt = None;
                                 self.apps[i].has_updates = true;
@@ -6737,7 +6745,26 @@ impl AppMain for App {
                         // is stored (the corrected card streams in over it).
                         let mut card_repair: Option<String> = None;
                         let mut data = CHAT_DATA.write().unwrap();
-                        let text = std::mem::take(&mut data.streaming_text);
+                        let streamed = std::mem::take(&mut data.streaming_text);
+                        let authoritative = std::mem::take(&mut data.authoritative_text);
+                        // Prefer what the kernel durably stored. The deltas we
+                        // accumulated are a best-effort mirror of it; one lost
+                        // in transit leaves `streamed` short by that chunk with
+                        // its edges spliced together mid-token, which silently
+                        // turns a valid card DSL into one that cannot parse.
+                        let text = if authoritative.is_empty() {
+                            streamed
+                        } else {
+                            if authoritative != streamed {
+                                log!(
+                                    "aichat UI stream/persisted MISMATCH — streamed={} persisted={} chars; \
+                                     using persisted (a delta was lost or reordered)",
+                                    streamed.chars().count(),
+                                    authoritative.chars().count()
+                                );
+                            }
+                            authoritative
+                        };
                         log!(
                             "aichat UI turn complete content_chars={}",
                             text.chars().count()
@@ -6759,7 +6786,10 @@ impl AppMain for App {
                                         .find_map(runsplash_body_forbidden);
                                     if let Some(reason) = forbidden {
                                         log::warn!("a2app: refusing to save unsafe card: {reason}");
-                                        if !self.apps[self.foreground].repair_attempted {
+                                        if prompt_owner
+                                            .map(|i| !self.apps[i].repair_attempted)
+                                            .unwrap_or(false)
+                                        {
                                             card_repair = Some(format!(
                                                 "SECURITY: your card was rejected — {reason}. \
                                                  Re-emit the card using ONLY sys.* helpers and \
@@ -6779,30 +6809,35 @@ impl AppMain for App {
                                             "a2app: runsplash card has no `// name:` line — not saved"
                                         ),
                                     }
-                                    // Machine-check the card against the app's
-                                    // shipped rules (a2app lint.json); at most
-                                    // ONE repair per routed intent, and repair
-                                    // output is not re-linted — no loops.
-                                    if !self.apps[self.foreground].repair_attempted {
-                                        if let Some(domain) =
-                                            self.apps[self.foreground].domain.clone()
-                                        {
-                                            if let Some(rules) =
-                                                crate::app::card_lint::load_rules(&domain)
+                                    // Machine-check the card against the rules
+                                    // of the app that OWNS this prompt — never
+                                    // the foreground app's lint.json, which may
+                                    // belong to a different domain (a stock
+                                    // card must not be checked by weather
+                                    // rules). Orphan prompts (no owner) skip
+                                    // lint rather than guess.
+                                    if let Some(owner_idx) = prompt_owner {
+                                        if !self.apps[owner_idx].repair_attempted {
+                                            if let Some(domain) =
+                                                self.apps[owner_idx].domain.clone()
                                             {
-                                                let violations =
-                                                    crate::app::card_lint::lint(body, &rules);
-                                                if !violations.is_empty() {
-                                                    log::warn!(
-                                                        "card lint ({domain}): {} violation(s): {}",
-                                                        violations.len(),
-                                                        violations.join(" | ")
-                                                    );
-                                                    card_repair = Some(
-                                                        crate::app::card_lint::repair_prompt(
-                                                            &violations,
-                                                        ),
-                                                    );
+                                                if let Some(rules) =
+                                                    crate::app::card_lint::load_rules(&domain)
+                                                {
+                                                    let violations =
+                                                        crate::app::card_lint::lint(body, &rules);
+                                                    if !violations.is_empty() {
+                                                        log::warn!(
+                                                            "card lint ({domain}): {} violation(s): {}",
+                                                            violations.len(),
+                                                            violations.join(" | ")
+                                                        );
+                                                        card_repair = Some(
+                                                            crate::app::card_lint::repair_prompt(
+                                                                &violations,
+                                                            ),
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }
@@ -6836,7 +6871,10 @@ impl AppMain for App {
                         // back to the SAME app agent session; the corrected card
                         // streams in over the visible (imperfect) one.
                         if let Some(repair) = card_repair.take() {
-                            let i = self.foreground;
+                            // card_repair is only set when the prompt's owner
+                            // was identified — route the repair back to THAT
+                            // app, not whatever happens to be foreground.
+                            let i = prompt_owner.unwrap_or(self.foreground);
                             let sid = self.apps[i].session_id;
                             let pid = self.agent.as_mut().unwrap().send_prompt(cx, sid, &repair);
                             self.apps[i].current_prompt = Some(pid);
