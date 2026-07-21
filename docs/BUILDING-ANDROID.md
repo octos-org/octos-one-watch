@@ -205,8 +205,11 @@ Use `docs/youtube-watch-reference.html` in the same command for the two-stage
 YouTube test. The fixture opens with three fixed results; selecting Big Buck
 Bunny enters the dedicated 332x187 safe-area player. Tap the large watch-owned
 Play/Pause control; YouTube's small-screen iframe controls are intentionally
-disabled. The watch needs a validated internet route and working DNS before the
-YouTube iframe or Piped search can succeed.
+disabled. The round expand button enters the watch-owned full-screen mode: the
+16:9 video stays uncropped and centered on black, with exit and Play/Pause in
+the top corners so the native composer does not cover them. The watch needs a
+validated internet route and working DNS before the YouTube iframe or Piped
+search can succeed.
 
 Package `dev.makepad.octos_watch`, launch activity `.MakepadApp`. On install Android
 extracts `liboctos.so` into the app's `nativeLibraryDir`; the app execs it as

@@ -31,8 +31,18 @@ button,input{font:inherit;color:inherit}button{-webkit-tap-highlight-color:trans
 .big-play{position:relative;z-index:2;width:76px;height:76px;padding:0;border:3px solid rgba(255,255,255,.92);border-radius:50%;background:rgba(255,0,0,.94);box-shadow:0 3px 18px rgba(0,0,0,.55)}.big-play:after{content:'';position:absolute;left:31px;top:22px;border-left:23px solid #fff;border-top:14px solid transparent;border-bottom:14px solid transparent}
 .loading{display:none;position:absolute;z-index:4;left:0;top:0;width:332px;height:187px;align-items:center;justify-content:center;background:rgba(0,0,0,.68);color:#ddd;font-size:13px}.loading.show{display:flex}.spinner{display:inline-block;width:18px;height:18px;margin-right:9px;border:2px solid #555;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .player-error{display:none;position:absolute;z-index:5;left:14px;top:18px;width:304px;min-height:150px;padding:19px 20px;border-radius:13px;background:rgba(14,14,14,.96);text-align:center}.player-error.show{display:block}.error-title{font-size:15px;font-weight:750;line-height:1.35}.error-copy{margin-top:8px;color:#aaa;font-size:12px;line-height:1.4}.error-back{height:38px;margin-top:14px;padding:0 18px;border:0;border-radius:19px;background:#f2f2f2;color:#111;font-weight:700}
-.controls{height:76px;flex:0 0 76px;display:flex;align-items:center;padding:6px 16px;border-bottom:1px solid #242424}.toggle{width:64px;height:64px;flex:0 0 64px;padding:0;border:1px solid #444;border-radius:50%;background:#f1f1f1;color:#080808;font-size:27px;font-weight:800}.control-copy{min-width:0;margin-left:14px}.control-state{font-size:16px;font-weight:740}.control-hint{margin-top:5px;color:#888;font-size:13px;white-space:nowrap}
+.controls{height:76px;flex:0 0 76px;display:flex;align-items:center;padding:6px 12px 6px 16px;border-bottom:1px solid #242424}.toggle{width:64px;height:64px;flex:0 0 64px;padding:0;border:1px solid #444;border-radius:50%;background:#f1f1f1;color:#080808;font-size:27px;font-weight:800}.control-copy{min-width:0;flex:1;margin-left:14px}.control-state{font-size:16px;font-weight:740}.control-hint{margin-top:5px;color:#888;font-size:13px;white-space:nowrap}.fullscreen-btn{width:56px;height:56px;flex:0 0 56px;padding:0;border:1px solid #444;border-radius:50%;background:#1a1a1a;color:#fff;font-size:27px;line-height:54px}
 .details{min-height:0;flex:1;padding:10px 16px 12px;overflow-y:auto}.now-title{font-size:17px;font-weight:730;line-height:1.28;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}.now-channel{margin-top:7px;color:#aaa;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fullscreen-controls{display:none}
+#playerScreen.fullscreen{display:block;position:fixed;z-index:100;left:0;top:0;width:360px;height:424px;background:#000}
+#playerScreen.fullscreen>.bar,#playerScreen.fullscreen>.controls,#playerScreen.fullscreen>.details{display:none}
+#playerScreen.fullscreen>.stage-shell{position:absolute;left:0;top:0;width:360px;height:424px;padding:0;display:flex;align-items:center;justify-content:center;background:#000}
+#playerScreen.fullscreen .stage{width:360px;height:203px;border-radius:0;box-shadow:none}
+#playerScreen.fullscreen #ytHost,#playerScreen.fullscreen #ytHost iframe,#playerScreen.fullscreen .poster,#playerScreen.fullscreen .poster img,#playerScreen.fullscreen .poster:after,#playerScreen.fullscreen .loading{width:360px!important;height:203px!important}
+#playerScreen.fullscreen .player-error{left:28px;top:27px}
+#playerScreen.fullscreen>.fullscreen-controls{display:flex;position:absolute;z-index:10;left:0;top:0;width:360px;height:424px;pointer-events:none}
+.fullscreen-exit,.fullscreen-toggle{position:absolute;padding:0;border:1px solid rgba(255,255,255,.42);border-radius:50%;background:rgba(12,12,12,.78);color:#fff;box-shadow:0 2px 12px rgba(0,0,0,.55);pointer-events:auto}
+.fullscreen-exit{left:12px;top:12px;width:52px;height:52px;font-size:31px;line-height:49px}.fullscreen-toggle{right:12px;top:12px;width:64px;height:64px;font-size:27px;line-height:62px}
 </style>
 </head>
 <body>
@@ -49,15 +59,16 @@ button,input{font:inherit;color:inherit}button{-webkit-tap-highlight-color:trans
     <div id="loading" class="loading"><span class="spinner"></span><span>正在准备视频</span></div>
     <div id="playerError" class="player-error"><div class="error-title">这个视频不能在手表内播放</div><div class="error-copy">发布者禁止了嵌入播放，请返回后选择另一个结果。</div><button id="errorBack" class="error-back" type="button">换一个视频</button></div>
   </div></div>
-  <div class="controls"><button id="toggle" class="toggle" type="button" aria-label="播放或暂停">▶</button><div class="control-copy"><div id="playerState" class="control-state">准备播放</div><div class="control-hint">触摸按钮控制</div></div></div>
+  <div class="controls"><button id="toggle" class="toggle" type="button" aria-label="播放或暂停">▶</button><div class="control-copy"><div id="playerState" class="control-state">准备播放</div><div class="control-hint">触摸按钮控制</div></div><button id="enterFullscreen" class="fullscreen-btn" type="button" aria-label="全屏播放">⛶</button></div>
   <div class="details"><div id="nowTitle" class="now-title"></div><div id="nowChannel" class="now-channel"></div></div>
+  <div class="fullscreen-controls"><button id="exitFullscreen" class="fullscreen-exit" type="button" aria-label="退出全屏">‹</button><button id="fullscreenToggle" class="fullscreen-toggle" type="button" aria-label="播放或暂停">▶</button></div>
 </section>
 <script>
 (function(){
   'use strict';
   var INITIAL_QUERY=(typeof __INITIAL_QUERY_JSON__==='undefined'?'':__INITIAL_QUERY_JSON__);
   var fallback=[{id:'aqz-KE-bpKQ',t:'Big Buck Bunny 60fps',ch:'Blender Foundation'},{id:'jNQXAC9IVRw',t:'Me at the zoo',ch:'jawed'},{id:'dQw4w9WgXcQ',t:'Never Gonna Give You Up',ch:'Rick Astley'}];
-  var searchScreen=document.getElementById('searchScreen'),playerScreen=document.getElementById('playerScreen'),query=document.getElementById('query'),notice=document.getElementById('notice'),results=document.getElementById('results'),stage=document.getElementById('stage'),poster=document.getElementById('poster'),posterImage=document.getElementById('posterImage'),loading=document.getElementById('loading'),playerError=document.getElementById('playerError'),toggle=document.getElementById('toggle'),playerState=document.getElementById('playerState'),playerTitle=document.getElementById('playerTitle'),nowTitle=document.getElementById('nowTitle'),nowChannel=document.getElementById('nowChannel');
+  var searchScreen=document.getElementById('searchScreen'),playerScreen=document.getElementById('playerScreen'),query=document.getElementById('query'),notice=document.getElementById('notice'),results=document.getElementById('results'),stage=document.getElementById('stage'),poster=document.getElementById('poster'),posterImage=document.getElementById('posterImage'),loading=document.getElementById('loading'),playerError=document.getElementById('playerError'),toggle=document.getElementById('toggle'),fullscreenToggle=document.getElementById('fullscreenToggle'),playerState=document.getElementById('playerState'),playerTitle=document.getElementById('playerTitle'),nowTitle=document.getElementById('nowTitle'),nowChannel=document.getElementById('nowChannel');
   var current=null,player=null,apiReady=false,pendingStart=false,searchSeq=0;
   function text(v){return String(v==null?'':v)}
   function cleanQuery(v){
@@ -86,14 +97,17 @@ button,input{font:inherit;color:inherit}button{-webkit-tap-highlight-color:trans
   }
   window.onYouTubeIframeAPIReady=function(){apiReady=true;if(pendingStart)createPlayer()};
   function resetHost(){var old=document.getElementById('ytHost');if(old&&old.parentNode)old.parentNode.removeChild(old);var host=document.createElement('div');host.id='ytHost';stage.insertBefore(host,poster)}
-  function stopPlayer(){pendingStart=false;if(player&&player.destroy){try{player.destroy()}catch(e){}}player=null;resetHost();loading.className='loading';playerError.className='player-error';toggle.textContent='▶';playerState.textContent='准备播放'}
-  function showError(){pendingStart=false;loading.className='loading';poster.className='poster hidden';playerError.className='player-error show';toggle.textContent='▶';playerState.textContent='无法嵌入播放'}
+  function setPlayIcon(icon){toggle.textContent=icon;fullscreenToggle.textContent=icon}
+  function enterFullscreen(){if(current)playerScreen.className='screen active fullscreen'}
+  function exitFullscreen(){if(playerScreen.className.indexOf('fullscreen')>=0)playerScreen.className='screen active'}
+  function stopPlayer(){pendingStart=false;if(player&&player.destroy){try{player.destroy()}catch(e){}}player=null;resetHost();loading.className='loading';playerError.className='player-error';setPlayIcon('▶');playerState.textContent='准备播放'}
+  function showError(){pendingStart=false;loading.className='loading';poster.className='poster hidden';playerError.className='player-error show';setPlayIcon('▶');playerState.textContent='无法嵌入播放'}
   function onState(e){
     loading.className='loading';
-    if(e.data===1){toggle.textContent='Ⅱ';playerState.textContent='播放中'}
-    else if(e.data===2){toggle.textContent='▶';playerState.textContent='已暂停'}
+    if(e.data===1){setPlayIcon('Ⅱ');playerState.textContent='播放中'}
+    else if(e.data===2){setPlayIcon('▶');playerState.textContent='已暂停'}
     else if(e.data===3){playerState.textContent='缓冲中…'}
-    else if(e.data===0){toggle.textContent='▶';playerState.textContent='播放结束'}
+    else if(e.data===0){setPlayIcon('▶');playerState.textContent='播放结束'}
   }
   function createPlayer(){
     if(!pendingStart||!current||!apiReady)return;pendingStart=false;resetHost();
@@ -104,14 +118,14 @@ button,input{font:inherit;color:inherit}button{-webkit-tap-highlight-color:trans
   function openPlayer(v){
     if(!v||!/^[A-Za-z0-9_-]{11}$/.test(v.id||''))return;stopPlayer();current=v;playerTitle.textContent='YouTube';nowTitle.textContent=text(v.t||'YouTube video');nowChannel.textContent=text(v.ch||'YouTube');posterImage.src='https://i.ytimg.com/vi/'+v.id+'/hqdefault.jpg';poster.className='poster';searchScreen.className='screen';playerScreen.className='screen active';ensureApi();
   }
-  function backToResults(){stopPlayer();current=null;playerScreen.className='screen';searchScreen.className='screen active'}
-  function suspendPlayer(){if(!current||playerScreen.className.indexOf('active')<0)return;stopPlayer();poster.className='poster';playerState.textContent='点按继续播放'}
+  function backToResults(){if(playerScreen.className.indexOf('fullscreen')>=0){exitFullscreen();return}stopPlayer();current=null;playerScreen.className='screen';searchScreen.className='screen active'}
+  function suspendPlayer(){if(!current||playerScreen.className.indexOf('active')<0)return;exitFullscreen();stopPlayer();poster.className='poster';playerState.textContent='点按继续播放'}
   function runSearch(raw){
     var q=cleanQuery(raw),seq=++searchSeq,O=window.octos;query.value=q;render(fallback);
     setNotice('正在通过 Piped 搜索：'+q,true);if(!O||typeof O.ytSearch!=='function'){setNotice('媒体桥未就绪 · 显示固定结果',false);return}
     O.ytSearch(q).then(function(found){if(seq!==searchSeq)return;if(found&&found.length){render(found);setNotice('Piped · '+found.length+' 个结果 · 上下滑动',false)}else{setNotice('搜索无结果 · 显示固定结果',false)}},function(){if(seq===searchSeq)setNotice('搜索失败 · 显示固定结果',false)});
   }
-  document.getElementById('start').onclick=startPlayback;toggle.onclick=togglePlayback;document.getElementById('back').onclick=backToResults;document.getElementById('errorBack').onclick=backToResults;document.getElementById('exit').onclick=exitApp;document.getElementById('retry').onclick=function(){runSearch(query.value)};document.getElementById('searchForm').onsubmit=function(e){e.preventDefault();runSearch(query.value)};
+  document.getElementById('start').onclick=startPlayback;toggle.onclick=togglePlayback;fullscreenToggle.onclick=togglePlayback;document.getElementById('enterFullscreen').onclick=enterFullscreen;document.getElementById('exitFullscreen').onclick=exitFullscreen;document.getElementById('back').onclick=backToResults;document.getElementById('errorBack').onclick=backToResults;document.getElementById('exit').onclick=exitApp;document.getElementById('retry').onclick=function(){runSearch(query.value)};document.getElementById('searchForm').onsubmit=function(e){e.preventDefault();runSearch(query.value)};
   document.addEventListener('visibilitychange',function(){if(document.hidden)suspendPlayer()});window.addEventListener('pagehide',suspendPlayer);runSearch(INITIAL_QUERY);
 }());
 </script>
