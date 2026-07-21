@@ -1,6 +1,6 @@
 # Building for Android
 
-How to build the `octos_app.apk` from a fresh clone, deploy it, and run it on a
+How to build the `octoswatch.apk` from a fresh clone, deploy it, and run it on a
 device. Do not assume the ABI: phones are commonly arm64, while some watches
 still report 32-bit ARM.
 
@@ -100,11 +100,21 @@ git -C octos checkout 81ca39e900f49f777d54a9b109c406b8a3641431
 ## 2. Install `cargo-makepad`
 
 ```bash
+# The watch composer lives in cargo-makepad's Android Java activity. Apply the
+# repository patch before installing the build tool; otherwise the APK retains
+# the phone-width [new][switch][QR][input][send] row.
+WATCH_ROOT="$PWD"
+git -C makepad apply "$WATCH_ROOT/patches/0001-composer-mono-theme.patch"
+
 # The build tool. The PGO profdata rustflag ships as a RELATIVE path and breaks
 # from another CWD, so override it with an absolute one for the install:
 RUSTFLAGS="-Cprofile-use=$PWD/aichat/libs/box3d/box3d.profdata" \
   cargo install --path makepad/tools/cargo_makepad --force
 ```
+
+The manifest sets `makepad.COMPOSER_LAYOUT=watch`. The patched build tool reads
+that key and emits `[menu][input][send]`; rebuilding the app with an older or
+unpatched `cargo-makepad` silently restores the unusable phone composer.
 
 Then, if you don't already have the NDK, `cargo makepad android install-toolchain`
 (see the ⚠️ above).
@@ -155,8 +165,8 @@ cargo makepad android --abi=armv7 \
 ```
 
 - Look for `Bundled extra native lib: liboctos.so` and `APK Build completed`.
-- Output: `app/target/android/makepad-android-apk/octos_app/apk/octos_app.apk`
-  (~74 MB). Verify: `unzip -l …/octos_app.apk | grep -E 'liboctos|libmakepad'`.
+- Output: `app/target/android/makepad-android-apk/octos_app/apk/octoswatch.apk`
+  (~74 MB). Verify: `unzip -l …/octoswatch.apk | grep -E 'liboctos|libmakepad'`.
 - Fast type-check without building the whole APK:
   `RUSTFLAGS="-Cprofile-use=$PWD/../aichat/libs/box3d/box3d.profdata" \
    cargo check --target armv7-linux-androideabi -p makepad-widgets`
@@ -168,7 +178,7 @@ cargo makepad android --abi=armv7 \
 ```bash
 cd ..   # repository root
 ADB=adb   # or /mnt/c/.../adb.exe on WSL
-$ADB install -r app/target/android/makepad-android-apk/octos_app/apk/octos_app.apk
+$ADB install -r app/target/android/makepad-android-apk/octos_app/apk/octoswatch.apk
 
 # launch. Extras (all optional):
 #   makepad.OCTOS_PROXY  http proxy for the LLM + data fetches (phones w/o direct net)

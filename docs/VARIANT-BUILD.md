@@ -21,7 +21,7 @@ build guide. The Rust client hardcodes its octos-home under
 `/data/user/0/<package>/…`, so the `--package-name` MUST match the package id
 this repo's `app/src/main.rs` was written for — don't mix flags.
 
-## 2. makepad build-tool patch (native composer theme)
+## 2. makepad build-tool patch (native composer variant support)
 
 The floating composer on Android is a **native** view drawn by
 cargo-makepad's Java (`MakepadActivity`), not by Makepad's GL canvas. To let
@@ -36,12 +36,18 @@ RUSTFLAGS="-Cprofile-use=$WATCH_ROOT/aichat/libs/box3d/box3d.profdata" \
   cargo install --path "$WATCH_ROOT/makepad/tools/cargo_makepad" --force
 ```
 
-The patch is additive and backward-compatible: it reads
-`<meta-data android:name="makepad.COMPOSER_THEME">` from the app manifest and
-falls back to the stock teal theme when absent. The watch variant keeps the
-stock (dark, OLED-friendly) theme, so its manifest does NOT set the meta-data —
-applying the patch is optional here and only matters if you also build the
-e-ink variant from the same toolchain.
+The patch is additive and backward-compatible. It reads two optional manifest
+keys:
+
+- `makepad.COMPOSER_THEME=mono` selects the monochrome e-ink theme.
+- `makepad.COMPOSER_LAYOUT=watch` replaces the three 40dp app controls with one
+  overflow menu and tightens the margins, preserving usable input width on a
+  small square display.
+
+Absent keys retain the stock teal, phone-width composer. This watch manifest
+sets `COMPOSER_LAYOUT=watch`, so **the patch is required**: without rebuilding
+and reinstalling `cargo-makepad` after applying it, the generated APK still
+contains the upstream phone composer and the input can collapse to zero width.
 
 ## 3. Launcher + system component
 
@@ -50,3 +56,9 @@ Both are wired through `app/app/resources/android/AndroidManifest.xml.template`
 [docs/SYSTEM-APP.md](docs/SYSTEM-APP.md) for the verified launcher-role and
 `/system/priv-app` install recipe (incl. the staged-kernel layout this app's
 `stdio_spawn()` looks for).
+
+## 4. Test the compact shell without the watch
+
+See [TESTING-WATCH-UI.md](TESTING-WATCH-UI.md). A narrow desktop run covers the
+Makepad shell; an x86_64 Android emulator is needed to exercise the native
+`EditText`, on-screen keyboard, overflow menu, and IME insets.

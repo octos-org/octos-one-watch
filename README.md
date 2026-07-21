@@ -20,9 +20,12 @@ smallScreens` in the manifest.
   map panes and the 7-day list for a glance + 3-day forecast + 2×2 tiles
   (enforced by `lint.json`, incl. new `"max": 0` bans); stock shows 5 movers
   and a 110-tall chart; news shows 5 rows; activity 4–5 places.
-- **Shell UI adapts from the first frame** (`app/app/src/main.rs`): the
-  sidebar + glass toolbar auto-collapse on startup below the 600px narrow
-  threshold (previously only after the first navigation).
+- **Watch-first shell UI** (`app/app/src/main.rs`): Android always removes the
+  sidebar, divider, and desktop glass toolbar; desktop starts at 360×480 for a
+  quick compact-layout preview.
+- **Usable native input bar** (`patches/0001-composer-mono-theme.patch`): the
+  watch manifest selects `[menu] [input] [send]`, replacing three fixed-width
+  controls that could squeeze the text field to zero.
 - **Same octos kernel & agents** as upstream — routing, composition, live
   data unchanged.
 
@@ -40,6 +43,8 @@ cargo makepad android --abi=armv7 \
 
 `arm64-v8a` maps to `aarch64`; `x86_64` maps to `x86_64`. The dependency
 revisions and non-root provisioning flow are pinned in the build guide.
+See [docs/TESTING-WATCH-UI.md](docs/TESTING-WATCH-UI.md) for desktop, Android
+emulator, and OWW212 physical-device verification.
 
 ---
 
