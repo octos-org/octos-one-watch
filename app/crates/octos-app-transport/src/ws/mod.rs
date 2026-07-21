@@ -369,7 +369,7 @@ mod tests {
             req.headers()
                 .get("x-octos-ui-features")
                 .and_then(|v| v.to_str().ok()),
-            Some("approval.typed.v1, pane.snapshots.v1, session.workspace_cwd.v1, context.lifecycle.v1, state.session_hydrate.v1, auxiliary.rest_to_ws.v1")
+            Some("approval.typed.v1, pane.snapshots.v1, session.workspace_cwd.v1, context.lifecycle.v1, state.session_hydrate.v1, event.message_persisted.v1, auxiliary.rest_to_ws.v1")
         );
     }
 }

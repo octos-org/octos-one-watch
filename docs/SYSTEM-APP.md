@@ -1,6 +1,6 @@
 # Running as Launcher & System Component
 
-octos-one registers itself both as a regular app (app-drawer `LAUNCHER`) and
+octos-one-watch registers itself both as a regular app (app-drawer `LAUNCHER`) and
 as a **home app** (`HOME` + `DEFAULT` categories on the main activity), so the
 user can pick it as the device launcher. It can also be installed as a
 **system app** in `/system/priv-app` (flags `SYSTEM` + `PERSISTENT`).
@@ -33,13 +33,13 @@ restarts it when it dies).
 ## 2. Set as the launcher (no root needed)
 
 ```bash
-adb shell cmd role add-role-holder android.app.role.HOME dev.makepad.octos_app
-adb shell input keyevent KEYCODE_HOME   # lands on octos-one
+adb shell cmd role add-role-holder android.app.role.HOME dev.makepad.octos_watch
+adb shell input keyevent KEYCODE_HOME   # lands on Octos Watch
 # verify
 adb shell cmd role get-role-holders android.app.role.HOME
 ```
 
-Or in UI: Settings → Apps → Default apps → Home app → Octos_app.
+Or in UI: Settings → Apps → Default apps → Home app → Octos Watch.
 
 ## 3. Install as a system app (root)
 
@@ -51,9 +51,9 @@ for the 80 MB+ kernel. The deployment therefore splits three ways:
 
 | Piece | Where | Why |
 |---|---|---|
-| `OctosOne.apk` (slim, libs stripped out, re-signed with the same debug key) | `/system/priv-app/OctosOne/` | the system app package |
-| `libmakepad.so`, `libstd-*.so` (uncompressed) | `/system/priv-app/OctosOne/lib/x86_64/` | PMS resolves `nativeLibraryDir` here (the "legacyNativeLibraryDir") |
-| `liboctos.so` (the 80 MB+ kernel) | `/data/user/0/dev.makepad.octos_app/files/octos-home/.bin/` | too big for the system image; the app finds it via the staged-kernel fallback in `stdio_spawn()` (`app/src/main.rs`) |
+| `OctosWatch.apk` (slim, libs stripped out, re-signed with the same debug key) | `/system/priv-app/OctosWatch/` | the system app package |
+| `libmakepad.so`, `libstd-*.so` (uncompressed) | `/system/priv-app/OctosWatch/lib/x86_64/` | PMS resolves `nativeLibraryDir` here (the "legacyNativeLibraryDir") |
+| `liboctos.so` (the 80 MB+ kernel) | `/data/user/0/dev.makepad.octos_watch/files/octos-home/.bin/` | too big for the system image; the app finds it via the staged-kernel fallback in `stdio_spawn()` (`app/src/main.rs`) |
 
 ### Recipe (emulator)
 
@@ -69,24 +69,24 @@ java -jar $SDK/build-tools/33.0.1/lib/apksigner.jar sign \
   --ks-key-alias androiddebugkey --ks-pass pass:android slim.apk
 
 # 2. push package + the two small libs beside it
-adb shell mkdir -p /system/priv-app/OctosOne/lib/x86_64
-adb push slim.apk /system/priv-app/OctosOne/OctosOne.apk
-adb push libmakepad.so libstd-*.so /system/priv-app/OctosOne/lib/x86_64/
+adb shell mkdir -p /system/priv-app/OctosWatch/lib/x86_64
+adb push slim.apk /system/priv-app/OctosWatch/OctosWatch.apk
+adb push libmakepad.so libstd-*.so /system/priv-app/OctosWatch/lib/x86_64/
 
 # 3. reboot once so PMS registers the package (it wipes a pre-created data
 #    dir!), THEN stage the kernel with the app's uid
 adb reboot && adb wait-for-device && adb root
-APPID=$(adb shell dumpsys package dev.makepad.octos_app | grep -m1 appId= | sed 's/[^0-9]//g')
-adb shell mkdir -p /data/user/0/dev.makepad.octos_app/files/octos-home/.bin
-adb push liboctos.so /data/user/0/dev.makepad.octos_app/files/octos-home/.bin/
-adb shell "chmod 755 /data/user/0/dev.makepad.octos_app/files/octos-home/.bin/liboctos.so; \
-           chown -R $APPID:$APPID /data/user/0/dev.makepad.octos_app/files"
+APPID=$(adb shell dumpsys package dev.makepad.octos_watch | grep -m1 appId= | sed 's/[^0-9]//g')
+adb shell mkdir -p /data/user/0/dev.makepad.octos_watch/files/octos-home/.bin
+adb push liboctos.so /data/user/0/dev.makepad.octos_watch/files/octos-home/.bin/
+adb shell "chmod 755 /data/user/0/dev.makepad.octos_watch/files/octos-home/.bin/liboctos.so; \
+           chown -R $APPID:$APPID /data/user/0/dev.makepad.octos_watch/files"
 
 # 4. verify
 adb shell pm list packages -s | grep octos
-adb shell dumpsys package dev.makepad.octos_app | grep flags=
+adb shell dumpsys package dev.makepad.octos_watch | grep flags=
 #   flags=[ SYSTEM HAS_CODE PERSISTENT ... ]
-adb shell am start -n dev.makepad.octos_app/.MakepadApp
+adb shell am start -n dev.makepad.octos_watch/.MakepadApp
 #   logcat shows: stdio: octos=/data/user/0/.../octos-home/.bin/liboctos.so
 ```
 

@@ -4556,7 +4556,7 @@ impl App {
         let mut data = CHAT_DATA.write().unwrap();
         data.messages.clear();
         data.streaming_text.clear();
-            data.authoritative_text.clear();
+        data.authoritative_text.clear();
         data.thinking_text.clear();
         data.is_streaming = false;
         data.a2app_state.clear();
@@ -6113,7 +6113,7 @@ impl MatchEvent for App {
                             let mut data = CHAT_DATA.write().unwrap();
                             data.messages.clear();
                             data.streaming_text.clear();
-            data.authoritative_text.clear();
+                            data.authoritative_text.clear();
                             data.thinking_text.clear();
                             data.is_streaming = false;
                             data.a2app_state.clear();

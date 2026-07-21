@@ -576,7 +576,10 @@ impl OctosUiAgent {
             // 2026-07 protocol catch-up: no plan pane / voice surface here.
             | UiNotification::PlanUpdated(_)
             | UiNotification::VoiceAudioChunk(_)
-            | UiNotification::Envelope(_) => Vec::new(),
+            | UiNotification::Envelope(_)
+            // V2 is capability-gated; this v1 client does not request it.
+            // Keep the explicit arm so dependency-head updates still compile.
+            | UiNotification::EnvelopeV2(_) => Vec::new(),
         }
     }
 }

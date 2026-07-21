@@ -26,13 +26,20 @@ smallScreens` in the manifest.
 - **Same octos kernel & agents** as upstream — routing, composition, live
   data unchanged.
 
-Build exactly like upstream ([docs/BUILDING-ANDROID.md](docs/BUILDING-ANDROID.md)) with:
+Build exactly like upstream ([docs/BUILDING-ANDROID.md](docs/BUILDING-ANDROID.md)),
+but select the ABI reported by the target device. For the verified OWW212
+(`armeabi-v7a`), use Makepad's `armv7` ABI name:
 
 ```bash
-cargo makepad android --abi=x86_64 \
+adb shell getprop ro.product.cpu.abi   # armeabi-v7a
+
+cargo makepad android --abi=armv7 \
   --package-name=dev.makepad.octos_watch --app-label="Octos Watch" \
   build -p octos-app --release
 ```
+
+`arm64-v8a` maps to `aarch64`; `x86_64` maps to `x86_64`. The dependency
+revisions and non-root provisioning flow are pinned in the build guide.
 
 ---
 
