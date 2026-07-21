@@ -105,6 +105,7 @@ git -C octos checkout 81ca39e900f49f777d54a9b109c406b8a3641431
 # the phone-width [new][switch][QR][input][send] row.
 WATCH_ROOT="$PWD"
 git -C makepad apply "$WATCH_ROOT/patches/0001-composer-mono-theme.patch"
+git -C aichat apply "$WATCH_ROOT/patches/0002-webcard-shell-navigation.patch"
 
 # The build tool. The PGO profdata rustflag ships as a RELATIVE path and breaks
 # from another CWD, so override it with an absolute one for the install:
@@ -184,10 +185,28 @@ $ADB install -r app/target/android/makepad-android-apk/octos_app/apk/octoswatch.
 #   makepad.OCTOS_PROXY  http proxy for the LLM + data fetches (phones w/o direct net)
 #   makepad.APP_CONFIG   'base_url|profile|token'  (headless auth provisioning)
 #   makepad.AUTO_PROMPT  auto-submit one prompt on boot (for testing)
+#   makepad.SEED_CARD_FILE app-readable Splash DSL or HTML file (test-only)
 $ADB shell am start -S -n dev.makepad.octos_watch/.MakepadApp \
     --es makepad.OCTOS_PROXY 'http://127.0.0.1:8899' \
     --es makepad.AUTO_PROMPT 'TSLA'
 ```
+
+For an LLM-independent WebView smoke test, push either shipped HTML fixture and
+launch it through `makepad.SEED_CARD_FILE`:
+
+```bash
+$ADB push docs/watch-webview-poc.html /data/local/tmp/watch-webview-poc.html
+$ADB shell chmod 644 /data/local/tmp/watch-webview-poc.html
+$ADB shell am start -W -S -n dev.makepad.octos_watch/.MakepadApp \
+  --es makepad.SEED_CARD_FILE /data/local/tmp/watch-webview-poc.html
+```
+
+Use `docs/youtube-watch-reference.html` in the same command for the two-stage
+YouTube test. The fixture opens with three fixed results; selecting Big Buck
+Bunny enters the dedicated 332x187 safe-area player. Tap the large watch-owned
+Play/Pause control; YouTube's small-screen iframe controls are intentionally
+disabled. The watch needs a validated internet route and working DNS before the
+YouTube iframe or Piped search can succeed.
 
 Package `dev.makepad.octos_watch`, launch activity `.MakepadApp`. On install Android
 extracts `liboctos.so` into the app's `nativeLibraryDir`; the app execs it as

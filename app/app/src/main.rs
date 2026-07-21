@@ -64,6 +64,31 @@ const AMA_SYSTEM_PROMPT: &str = "You are the AMA (Activity Management Agent) of 
 
 const APP_SPLASH_ROUTER: &str = "You ARE the app agent and you OWN the entire card generation. Your COMPLETE memory (the app framework procedure, the widget helpers, and the app specs) is ALREADY IN YOUR CONTEXT — it was injected as your memory. USE it. Do NOT read or fetch any files. Do NOT use the spawn tool. Do NOT delegate. Do NOT summarize.\n\nYou have ALREADY been told which app to build (see the routing line below) — follow THAT app's `apps/<id>/app.md` spec, assembling it from the injected widget patterns (there are no exemplars). It may be weather, stock, news, activity, a composed app (e.g. weather-activity), or any other app whose spec is in your memory — build whichever one you were routed to, using ONLY the sys.* helpers ITS spec names. Bind LIVE data via those helpers — NEVER hardcode or invent numbers/headlines/venues.\n\nWrite the card YOURSELF and stream it as your answer: emit EXACTLY ONE ```runsplash fenced block as your ENTIRE final answer — the COMPLETE card DSL, with ALL mandatory sections the chosen app's spec lists (e.g. for weather: current block, 7-day forecast, BOTH map panes each as its own full-width row — satellite 卫星云图 then air-quality 空气质量图, NEVER side by side — and the detail grid). No prose before or after the block. NEVER truncate — emit the whole card in one block.";
 
+/// Kept separate from the long AMA system prompt so the watch can add WebView
+/// domains without duplicating that prompt. This hint is repeated in the
+/// routing turn, where it has the strongest influence on the one-line answer.
+const AMA_WEB_ROUTING_HINT: &str = "WEBVIEW ROUTES: ANY video, music, live-stream, or watch/play request routes to `youtube`. ANY other actionable app, tool, game, timer, calculator, or utility not covered by weather/stock/news/activity routes to `web`. A style modifier on a known app does not change its domain.";
+
+const WEB_CARD_CONTRACT: &str = include_str!("../../../a2app/apps/web/app.md");
+const YOUTUBE_CARD_CONTRACT: &str = include_str!("../../../a2app/apps/youtube/app.md");
+const WATCH_YOUTUBE_CARD: &str = include_str!("../../../docs/youtube-watch-reference.html");
+
+/// Build the deterministic watch-sized YouTube card. The initial user intent
+/// is JSON-encoded before insertion, so quotes or markup in a spoken request
+/// cannot escape into executable JavaScript.
+fn watch_youtube_card(intent: &str) -> String {
+    // JSON alone does not escape `</script>`; encode the HTML-significant
+    // characters as JS unicode escapes before inserting inside a script tag.
+    let query = serde_json::to_string(intent)
+        .unwrap_or_else(|_| "\"\"".to_string())
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+    WATCH_YOUTUBE_CARD.replace("__INITIAL_QUERY_JSON__", &query)
+}
+
 /// The domain-specialised app-agent prompt. The AMA routed `intent` to `domain`,
 /// so tell THAT agent to generate a card of exactly that app type (following the
 /// matching `apps/<domain>/app.md` spec in its injected memory).
@@ -71,6 +96,22 @@ const APP_SPLASH_ROUTER: &str = "You ARE the app agent and you OWN the entire ca
 /// reuse it unchanged: the fresh session's injected memory carries the
 /// AMA-authored `apps/<domain>/app.md`, which this prompt points the agent at.
 fn app_splash_router_for(domain: &str, intent: &str) -> String {
+    if domain == "web" {
+        return format!(
+            "You ARE the watch web app agent. Follow the CONTRACT below exactly. Emit \
+EXACTLY ONE complete ```runhtml fenced HTML document and no prose. Keep the UI \
+usable at 372x430, target Chromium 83, and do not use features newer than that \
+baseline.\n\n----- WATCH WEB CONTRACT -----\n{WEB_CARD_CONTRACT}\n----- END \
+CONTRACT -----\n\nUser request: {intent}"
+        );
+    }
+    if domain == "youtube" {
+        return format!(
+            "You ARE the watch youtube app agent. Follow the CONTRACT below exactly \
+and emit one complete ```runhtml block.\n\n----- WATCH YOUTUBE CONTRACT \
+-----\n{YOUTUBE_CARD_CONTRACT}\n----- END CONTRACT -----\n\nUser request: {intent}"
+        );
+    }
     format!(
         "{APP_SPLASH_ROUTER}\n\nThe AMA routed this request to the {domain} app — \
 generate a {domain} card: follow the apps/{domain}/app.md spec in \
@@ -739,18 +780,23 @@ fn resolve_a2app_card(text: &str, item_id: usize, state: &CardState) -> String {
     out
 }
 
-/// While a reply is still streaming, hold back an UNCLOSED ```runsplash
-/// block: the downstream remend pass auto-closes open fences, which would
-/// dispatch every partial body to the Splash widget — a full script-VM eval
-/// per repaint (observed ~60 evals for one card) and a jittering half-built
-/// layout. Instead, cut the text at the open fence and show a small building
-/// note; the card renders exactly once when the closing fence arrives.
-fn defer_unclosed_runsplash(text: &str) -> std::borrow::Cow<'_, str> {
+/// While a reply is still streaming, hold back an UNCLOSED executable card.
+/// The downstream remend pass auto-closes open fences, which would otherwise
+/// evaluate partial Splash repeatedly or reload a half-written HTML document.
+/// The card renders exactly once when its real closing fence arrives.
+fn defer_unclosed_card(text: &str) -> std::borrow::Cow<'_, str> {
     use std::borrow::Cow;
-    let Some(start) = text.rfind("```runsplash") else {
+    let splash = text.rfind("```runsplash").map(|start| (start, "```runsplash"));
+    let html = text.rfind("```runhtml").map(|start| (start, "```runhtml"));
+    let Some((start, marker)) = (match (splash, html) {
+        (Some(a), Some(b)) => Some(if a.0 > b.0 { a } else { b }),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }) else {
         return Cow::Borrowed(text);
     };
-    let after = &text[start + "```runsplash".len()..];
+    let after = &text[start + marker.len()..];
     let closed = match after.find('\n') {
         // Fence body present — closed iff a terminating ``` follows.
         Some(nl) => after[nl + 1..].contains("```"),
@@ -1391,6 +1437,17 @@ script_mod! {
                             height: Fit
                         }
                     }
+                    // `runhtml` dispatch target. WebCard is a native Android
+                    // WebView overlay; one watch viewport keeps it out of the
+                    // tall phone-style PortalList geometry.
+                    web_block := View {
+                        width: Fill
+                        height: 430
+                        web_view := WebCard {
+                            width: Fill
+                            height: Fill
+                        }
+                    }
                     // Diagram block — rendered by makepad-diagram-kit's
                     // DiagramView. The inner `diagram_view` id matches what
                     // the markdown widget's `ids!(diagram_view).set_text`
@@ -1553,6 +1610,14 @@ script_mod! {
                                     width: Fill
                                     height: Fit
                                 }
+                            }
+                        }
+                        web_block := View{
+                            width: Fill
+                            height: 430
+                            web_view := WebCard{
+                                width: Fill
+                                height: Fill
                             }
                         }
                         // Diagram block — see User-side comment.
@@ -3503,12 +3568,12 @@ impl Widget for ChatList {
                             // Remend keeps fenced blocks, tables and math
                             // self-consistent mid-stream so the Markdown
                             // widget doesn't re-layout a half-closed block
-                            // on every token. An open `runsplash` fence is
-                            // deferred first — see `defer_unclosed_runsplash`.
+                            // on every token. An open executable card fence is
+                            // deferred first — see `defer_unclosed_card`.
                             // Gate order: hold back an unclosed block, THEN
                             // neutralize EVERY closed-but-forbidden one before it
                             // reaches the Splash renderer (net-write exfil).
-                            let deferred = defer_unclosed_runsplash(&data.streaming_text);
+                            let deferred = defer_unclosed_card(&data.streaming_text);
                             let safe = neutralize_forbidden_cards(&deferred);
                             streaming_body = streaming_display_with_latex_autowrap_remend(
                                 &safe,
@@ -3558,13 +3623,14 @@ impl Widget for ChatList {
                         // on the raw message text, which for a card is runsplash DSL,
                         // so the affordance is meaningless — hide both. User messages
                         // have neither button, so these are no-ops there.
-                        let is_splash_card = msg.text.contains("```runsplash");
+                        let is_app_card = msg.text.contains("```runsplash")
+                            || msg.text.contains("```runhtml");
                         item_widget
                             .button(cx, ids!(copy_button))
-                            .set_visible(cx, !is_splash_card);
+                            .set_visible(cx, !is_app_card);
                         item_widget
                             .button(cx, ids!(share_button))
-                            .set_visible(cx, !is_splash_card);
+                            .set_visible(cx, !is_app_card);
                         let mut markdown = item_widget.markdown(cx, ids!(selectable));
                         let empty_state = CardState::new();
                         let card_state = data.a2app_state.get(&item_id).unwrap_or(&empty_state);
@@ -3839,6 +3905,46 @@ impl App {
         log::info!("AMA → activate '{app_id}' app agent (idx {idx}) | {decision}");
         // This domain agent takes the screen.
         self.foreground = idx;
+        // WebCard is a native overlay shared by every HTML card. Detach the
+        // previous document before changing domains; a new runhtml render will
+        // attach it again at the new widget rect.
+        cx.system_browser(web_card_browser_id()).detach();
+        if app_id == "youtube" {
+            // Serve a deterministic watch-sized player directly. Generating a
+            // complete media application with an on-device model is slow and
+            // prone to truncation; the card itself performs live Piped search
+            // for the user's intent and keeps a known-good fallback video.
+            let card = watch_youtube_card(&intent);
+            let session = format!("{:?}", self.apps[idx].session_id);
+            save_card_artifact(
+                "youtube-watch",
+                "runhtml",
+                &card,
+                Some("youtube"),
+                Some(&intent),
+                Some(&session),
+            );
+            CHAT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if let Ok(mut data) = CHAT_DATA.write() {
+                data.messages.push(ChatMessage {
+                    role: ChatRole::Assistant,
+                    text: format!("```runhtml\n{card}\n```"),
+                });
+                data.is_streaming = false;
+            }
+            self.apps[idx].repair_attempted = false;
+            self.update_empty_state_visibility(cx);
+            // This path bypasses TurnComplete, which normally collapses the
+            // native Android composer after a card renders. Collapse it here as
+            // well so the large input pill does not cover the player.
+            self.composer_shown = false;
+            self.sync_composer(cx);
+            self.sync_app_tabs(cx);
+            let chat_list = self.ui.widget(cx, ids!(chat_list));
+            chat_list.portal_list(cx, ids!(list)).set_tail_range(true);
+            cx.redraw_all();
+            return;
+        }
         // New foreground → drop ChatList's render cache so the card re-parses.
         CHAT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // Dispatch the domain-specialised generation prompt to the chosen agent.
@@ -4420,6 +4526,14 @@ impl App {
     /// app ids before spawning a peer for them.
     #[cfg(target_os = "android")]
     fn app_spec_exists(app_id: &str) -> bool {
+        // These two contracts are compiled into the client with `include_str!`.
+        // They deliberately do not depend on the mutable on-device memory tree:
+        // YouTube renders a deterministic card and Web receives its embedded
+        // contract in `app_splash_router_for`. Treat them as known apps so the
+        // AMA can lazily create their peer record and route to them.
+        if matches!(app_id, "web" | "youtube") {
+            return true;
+        }
         let Ok(home) = std::env::var("HOME") else {
             return false;
         };
@@ -4503,6 +4617,9 @@ impl App {
     }
 
     fn clear_chat(&mut self, cx: &mut Cx) {
+        // Native WebViews live outside the Makepad draw tree; explicitly tear
+        // down the previous card when its conversation is cleared.
+        cx.system_browser(web_card_browser_id()).detach();
         {
             let mut data = CHAT_DATA.write().unwrap();
             data.messages.clear();
@@ -4562,7 +4679,8 @@ impl App {
 
     /// Wipe the shared conversation surface (`CHAT_DATA`). Shared by
     /// `clear_chat`, `open_new_app`, and `switch_to_app`.
-    fn wipe_chat_surface(&mut self) {
+    fn wipe_chat_surface(&mut self, cx: &mut Cx) {
+        cx.system_browser(web_card_browser_id()).detach();
         let mut data = CHAT_DATA.write().unwrap();
         data.messages.clear();
         data.streaming_text.clear();
@@ -4632,7 +4750,7 @@ impl App {
         self.apps.push(AppRecord::new(sid, format!("App {n}")));
         self.foreground = self.apps.len() - 1;
         // Fresh foreground app → clear the shared surface; re-prime the manual.
-        self.wipe_chat_surface();
+        self.wipe_chat_surface(cx);
         self.splash_primed = false;
         self.composer_shown = true;
         self.sync_composer(cx);
@@ -4660,6 +4778,8 @@ impl App {
             return;
         }
         // Snapshot the app we're leaving, then enter and restore app `i`.
+        // The restored WebCard (if any) attaches itself on its next draw.
+        cx.system_browser(web_card_browser_id()).detach();
         let prev = self.foreground;
         self.snapshot_into(prev);
         self.foreground = i;
@@ -4831,7 +4951,8 @@ impl App {
         let (ama_pid, direct_pid) = if splash {
             if let Some(ama) = ama_session {
                 let ama_msg = format!(
-                    "{AMA_SYSTEM_PROMPT}\n\nUser message: {text}\n\nYour one-line routing decision:"
+                    "{AMA_SYSTEM_PROMPT}\n\n{AMA_WEB_ROUTING_HINT}\n\nUser message: \
+{text}\n\nYour one-line routing decision:"
                 );
                 (Some(agent.send_prompt(cx, ama, &ama_msg)), None)
             } else {
@@ -5875,6 +5996,22 @@ impl MatchEvent for App {
         // action is posted from the platform's `onComposerSubmit` JNI callback
         // (see `android.rs::handle_message`). Never fires off Android.
         for action in actions {
+            // YouTube exposes an explicit Exit action. Return to the real blank
+            // compose state instead of overloading the floating "+" as hidden
+            // navigation. Restrict the command to the trusted YouTube domain.
+            if let Some(inv) = action.downcast_ref::<
+                makepad_widgets::makepad_platform::event::AndroidSystemBrowserInvoke,
+            >() {
+                let youtube_active =
+                    self.fg().and_then(|a| a.domain.as_deref()) == Some("youtube");
+                if inv.browser_id == web_card_browser_id().0.get_value()
+                    && inv.tool == "ui.home"
+                    && youtube_active
+                {
+                    self.clear_chat(cx);
+                    return;
+                }
+            }
             if let Some(sub) = action
                 .downcast_ref::<makepad_widgets::makepad_platform::event::AndroidComposerSubmit>()
             {
@@ -6546,20 +6683,32 @@ impl MatchEvent for App {
         } else {
             self.auto_solo_login(cx);
         }
-        // TEST-ONLY: seed a canned `runsplash` card from a file (bypasses the
-        // server/LLM) so on-device render/scroll/map tests don't depend on card
+        // TEST-ONLY: seed a canned Splash or HTML card from a file (bypasses the
+        // server/LLM) so on-device render/WebView tests don't depend on card
         // generation. `--es makepad.SEED_CARD_FILE <app-readable path>` surfaces as
         // MAKEPAD_SEED_CARD_FILE. Push AFTER the boot decision above (clear_chat
         // wipes CHAT_DATA), then refresh the empty-state + redraw so it shows.
         if let Ok(path) = std::env::var("MAKEPAD_SEED_CARD_FILE") {
             match std::fs::read_to_string(&path) {
                 Ok(body) => {
+                    let body_trim = body.trim();
+                    let fence = if body_trim.starts_with("<!DOCTYPE")
+                        || body_trim.starts_with("<!--")
+                        || body_trim.starts_with("<html")
+                    {
+                        "runhtml"
+                    } else {
+                        "runsplash"
+                    };
                     if let Ok(mut data) = CHAT_DATA.write() {
                         data.messages.push(ChatMessage {
                             role: ChatRole::Assistant,
-                            text: format!("```runsplash\n{}\n```", body.trim()),
+                            text: format!("```{fence}\n{body_trim}\n```"),
                         });
                     }
+                    // Seed cards bypass TurnComplete too; mirror the normal
+                    // completed-card state for faithful on-device layout tests.
+                    self.composer_shown = false;
                     self.update_empty_state_visibility(cx);
                     cx.redraw_all();
                     log::info!("SEED_CARD injected {} bytes from {path}", body.len());
@@ -7037,6 +7186,7 @@ impl AppMain for App {
                                 // Webview (runhtml) cards get the same archive
                                 // treatment — previously they were ephemeral.
                                 if let Some(html) = extract_runhtml_body(&text) {
+                                    rendered_card = true;
                                     match extract_html_card_name(html) {
                                         Some(name) => save_card_artifact(
                                             &name,

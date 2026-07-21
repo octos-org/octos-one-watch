@@ -120,6 +120,34 @@ the warning should remain part of transport stress/regression testing.
 - Long generated cards scroll without horizontal clipping.
 - Rotate/rescale the AVD once and repeat the keyboard checks.
 
+## 6. WebView and YouTube checklist
+
+Run the deterministic fixtures before testing LLM routing:
+
+- `docs/watch-webview-poc.html` shows the counter; tapping `+` increments it.
+- `docs/youtube-watch-reference.html` opens on a search/result carousel with one
+  full-width thumbnail card per screen; vertically swiping snaps to the next
+  result. It must not render a phone-style thumbnail/text row list.
+- Selecting Big Buck Bunny opens a dedicated player with a 332x187 inset video
+  stage and large watch-owned Play/Pause controls. The YouTube iframe's
+  phone-oriented controls stay disabled.
+- The floating `+` remains available. The result screen's explicit Back action
+  must detach the WebView and return to the app's blank compose state; the
+  player Back action only returns to the result carousel.
+- Switching to a Splash app or starting a new conversation removes the native
+  WebView overlay instead of leaving it above Makepad.
+- The watch has a validated default network and DNS. Confirm Piped search returns
+  at least one result; an empty result with `UnknownHostException` is a device
+  network failure, not a rendering pass.
+- Test natural-language cleanup (`使用 YouTube 播放 xx 视频` searches for `xx`),
+  player entry, unclipped controls, picture, sound, pause/resume,
+  Back-to-results, a non-embeddable-video error, and background/foreground
+  resume.
+
+Android `screencap` may omit the hardware-composited WebView layer on the OWW212.
+For WebView visual acceptance, use the physical display (or Chrome DevTools via
+`webview_devtools_remote_<pid>`); a black PNG alone is not evidence of failure.
+
 After every composer or shell-layout change, repeat the checklist on the
 OWW212 and record a screenshot with the keyboard open. That is the acceptance
 test for density and OEM insets; an emulator pass alone is not sufficient.

@@ -11,6 +11,7 @@
         android:allowBackup="true"
         android:supportsRtl="true"
         android:debuggable="{debuggable}"
+        android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:persistent="true"
         tools:targetApi="{target_sdk_version}">
