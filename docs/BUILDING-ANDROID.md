@@ -106,6 +106,8 @@ git -C octos checkout 81ca39e900f49f777d54a9b109c406b8a3641431
 WATCH_ROOT="$PWD"
 git -C makepad apply "$WATCH_ROOT/patches/0001-composer-mono-theme.patch"
 git -C aichat apply "$WATCH_ROOT/patches/0002-webcard-shell-navigation.patch"
+git -C aichat apply "$WATCH_ROOT/patches/0003-android-composer-voice-event.patch"
+git -C makepad apply "$WATCH_ROOT/patches/0004-android-composer-voice-menu.patch"
 
 # The build tool. The PGO profdata rustflag ships as a RELATIVE path and breaks
 # from another CWD, so override it with an absolute one for the install:

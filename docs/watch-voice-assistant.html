@@ -1,0 +1,92 @@
+<!-- name: watch-voice-assistant -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<!-- Keep CSS pixels, touch targets and the OWW212 WebView in the same space. -->
+<meta name="viewport" content="width=360, initial-scale=0.5, maximum-scale=0.5, user-scalable=no">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:360px;height:424px;overflow:hidden;background:#000;color:#fff;font-family:system-ui,-apple-system,"Noto Sans SC",sans-serif;-webkit-user-select:none;user-select:none}
+button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
+.voice-orb:focus,.exit:focus{outline:none}
+.voice-view{position:relative;width:360px;height:424px;overflow:hidden;background:#000}
+.exit{position:absolute;z-index:4;right:16px;top:14px;width:46px;height:46px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.10);color:rgba(255,255,255,.72);font-size:29px;font-weight:300;line-height:44px;text-align:center}
+.exit:active{background:rgba(255,255,255,.18);transform:scale(.96)}
+.center{position:absolute;left:0;right:0;top:52px;display:flex;flex-direction:column;align-items:center}
+.voice-orb{position:relative;width:160px;height:160px;display:flex;align-items:center;justify-content:center;border:0;padding:0;background:transparent}
+.voice-orb-core{width:120px;height:120px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e0b076,#c47445 48%,#4f6d4c 86%);box-shadow:0 0 54px 4px rgba(196,116,69,.32),inset 0 0 24px rgba(255,246,234,.18);transition:all .4s ease}
+.voice-orb-ring{position:absolute;border-radius:50%;border:2px solid rgba(196,116,69,.35);opacity:0}
+.voice-orb.is-idle .voice-orb-core{width:90px;height:90px;filter:saturate(.6) brightness(.8);animation:vo-breathe 4s ease-in-out infinite}
+.voice-orb.is-listening .voice-orb-core{animation:vo-breathe 1.4s ease-in-out infinite}
+.voice-orb.is-listening .voice-orb-ring{width:120px;height:120px;animation:vo-ripple 1.8s ease-out infinite}
+.voice-orb.is-listening .voice-orb-ring.r2{animation-delay:.9s}
+.voice-orb.is-thinking .voice-orb-core{animation:vo-breathe 2s ease-in-out infinite}
+.voice-orb.is-speaking .voice-orb-core{animation:vo-talk .45s ease-in-out infinite}
+.voice-orb.is-error .voice-orb-core{background:radial-gradient(circle at 35% 30%,#ffb3b3,#ff5a5a 60%,#b02a2a);box-shadow:0 0 50px 4px rgba(255,80,80,.5)}
+.state{margin-top:9px;min-height:24px;color:rgba(255,255,255,.60);font-size:15px;line-height:24px;text-align:center}
+.hint{max-width:290px;min-height:18px;margin-top:2px;color:rgba(255,255,255,.32);font-size:11px;line-height:18px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.transcript{position:absolute;left:24px;right:24px;bottom:18px;min-height:94px;max-height:112px;display:flex;flex-direction:column;justify-content:flex-end;gap:7px;overflow:hidden;text-align:center;mask-image:linear-gradient(to bottom,transparent 0,#000 18px,#000 100%)}
+.user{font-size:13px;line-height:1.4;color:rgba(255,255,255,.44)}
+.assistant{display:-webkit-box;overflow:hidden;font-size:16px;line-height:1.45;color:rgba(255,255,255,.90);-webkit-box-orient:vertical;-webkit-line-clamp:3}
+.error{color:rgba(254,202,202,.92)}
+@keyframes vo-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@keyframes vo-talk{0%,100%{transform:scale(1)}25%{transform:scale(1.14)}60%{transform:scale(.95)}}
+@keyframes vo-ripple{0%{transform:scale(1);opacity:0}12%{opacity:.55}70%{opacity:.18}100%{transform:scale(1.92);opacity:0}}
+</style>
+</head>
+<body>
+<main class="voice-view">
+  <button id="exit" class="exit" type="button" aria-label="退出语音模式">×</button>
+  <section class="center">
+    <button id="orb" class="voice-orb is-listening" type="button" aria-label="结束录音">
+      <span class="voice-orb-ring r1"></span>
+      <span class="voice-orb-ring r2"></span>
+      <span class="voice-orb-core"></span>
+    </button>
+    <div id="state" class="state">聆听中…</div>
+    <div id="hint" class="hint">点光球结束录音</div>
+  </section>
+  <section class="transcript" aria-live="polite">
+    <div id="user" class="user"></div>
+    <div id="assistant" class="assistant"></div>
+  </section>
+</main>
+<script>
+(function(){
+  var seq=1;
+  var orb=document.getElementById('orb');
+  var state=document.getElementById('state');
+  var hint=document.getElementById('hint');
+  var user=document.getElementById('user');
+  var assistant=document.getElementById('assistant');
+
+  function send(tool){
+    try{
+      if(window.octos_native&&window.octos_native.invoke){
+        window.octos_native.invoke(seq++,tool,'{}');
+      }
+    }catch(_error){}
+  }
+
+  window.watchVoice={
+    setState:function(value){
+      value=value||{};
+      var next=value.state||'idle';
+      orb.className='voice-orb is-'+next;
+      if(typeof value.status==='string')state.textContent=value.status;
+      if(typeof value.hint==='string')hint.textContent=value.hint;
+      if(typeof value.userText==='string')user.textContent=value.userText;
+      if(typeof value.assistantText==='string')assistant.textContent=value.assistantText;
+      state.className='state'+(next==='error'?' error':'');
+      orb.setAttribute('aria-label',value.primary||'语音操作');
+    }
+  };
+
+  orb.onclick=function(){send('voice.primary')};
+  document.getElementById('exit').onclick=function(){send('voice.close')};
+  send('voice.ready');
+}());
+</script>
+</body>
+</html>

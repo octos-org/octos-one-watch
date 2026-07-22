@@ -23,7 +23,22 @@ use streaming_markdown_kit::{
     streaming_display_with_latex_autowrap_remend, wrap_bare_latex, SanitizeOptions,
 };
 
+use crate::app::voice::WatchVoiceIo;
+use crate::app::voice_web::voice_browser_id;
 use crate::backend::OctosUiAgent;
+use std::collections::VecDeque;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum VoiceUiState {
+    #[default]
+    Idle,
+    RequestingPermission,
+    Recording,
+    Thinking,
+    Speaking,
+    Error,
+}
 
 /// Octos profiles supply system prompts server-side, so the client ships an
 /// empty placeholder. Replaces aichat's `BackendType::system_prompt` (and the
@@ -72,6 +87,7 @@ const AMA_WEB_ROUTING_HINT: &str = "WEBVIEW ROUTES: ANY video, music, live-strea
 const WEB_CARD_CONTRACT: &str = include_str!("../../../a2app/apps/web/app.md");
 const YOUTUBE_CARD_CONTRACT: &str = include_str!("../../../a2app/apps/youtube/app.md");
 const WATCH_YOUTUBE_CARD: &str = include_str!("../../../docs/youtube-watch-reference.html");
+const WATCH_VOICE_ASSISTANT: &str = include_str!("../../../docs/watch-voice-assistant.html");
 
 /// Build the deterministic watch-sized YouTube card. The initial user intent
 /// is JSON-encoded before insertion, so quotes or markup in a spoken request
@@ -2844,6 +2860,22 @@ script_mod! {
                     }
                     }
 
+                    // The trusted Rust side owns capture/transport/playback;
+                    // this isolated WebView mirrors octos-web's voice surface.
+                    voice_overlay := View {
+                        visible: false
+                        width: Fill
+                        height: Fill
+                        show_bg: true
+                        draw_bg +: {
+                            color: #x000000
+                        }
+                        voice_web_view := WatchVoiceWebView {
+                            width: Fill
+                            height: Fill
+                        }
+                    }
+
                     // W08 — LoginScreen overlay. Lives at the body level
                     // (sibling to `app_shell`) so its hit-region covers
                     // everything when visible. App-side boot / login flow
@@ -3749,10 +3781,40 @@ pub struct App {
     /// again when the pill is tapped. Initialized true in `handle_startup`.
     #[rust]
     composer_shown: bool,
-    /// Single OctosUiAgent instance — replaces aichat's `Box<dyn Agent>`
-    /// dynamic dispatch over LLM backends. Lazily constructed on first use.
+    /// Single OctosUiAgent instance. Keeping the concrete type lets the watch
+    /// send an audio-backed turn without widening Makepad's generic Agent API.
     #[rust]
-    agent: Option<Box<dyn Agent>>,
+    agent: Option<OctosUiAgent>,
+    /// Native Makepad capture/playback bridge for push-to-talk voice turns.
+    #[rust]
+    voice_io: WatchVoiceIo,
+    #[rust]
+    voice_state: VoiceUiState,
+    #[rust]
+    voice_status: String,
+    #[rust]
+    voice_primary: String,
+    #[rust]
+    voice_hint: String,
+    #[rust]
+    voice_user_text: String,
+    #[rust]
+    voice_assistant_text: String,
+    #[rust]
+    voice_prompt: Option<PromptId>,
+    #[rust]
+    voice_input_path: Option<PathBuf>,
+    /// Complete sentence WAVs arrive as ordered `file/attached` events. Keep
+    /// later sentences queued while the current one is playing.
+    #[rust]
+    voice_reply_queue: VecDeque<(String, String)>,
+    /// Playback may finish before the kernel emits `turn/completed`; avoid
+    /// reopening the microphone while more audio is still being synthesized.
+    #[rust]
+    voice_turn_complete: bool,
+    /// `voice/exit` is delayed until the farewell WAV has finished playing.
+    #[rust]
+    voice_exit_pending: bool,
     /// Open apps, each backed by an octos session. Empty until the first
     /// session opens (`clear_chat` at boot pushes the first). Layer 3 / W08.
     #[rust]
@@ -4095,23 +4157,19 @@ impl App {
     /// Construct an `OctosUiAgent` from the current process environment.
     /// W08 will plumb the bearer + profile through `octos-app-store::auth`
     /// and the keychain; for now we read placeholders so the binary boots
-    /// without a server. Returns the boxed `Agent` so `App::agent` can stay
-    /// `Option<Box<dyn Agent>>` and the streaming pipeline keeps working.
-    ///
     /// Replaces aichat's per-backend `create_agent` match arm.
-    /// Returns the boxed agent + the W05 approval handle (captured before
-    /// the box hides the concrete type).
+    /// Returns the concrete agent + the W05 handles.
     fn create_octos_agent(
         transport_config: TransportConfig,
     ) -> (
-        Box<dyn Agent>,
+        OctosUiAgent,
         crate::backend::octos_ui::ApprovalHandle,
         crate::backend::octos_ui::TaskOutputHandle,
     ) {
         let agent = OctosUiAgent::new(transport_config);
         let approval_handle = agent.approval_handle();
         let task_output_handle = agent.task_output_handle();
-        (Box::new(agent) as Box<dyn Agent>, approval_handle, task_output_handle)
+        (agent, approval_handle, task_output_handle)
     }
 
     /// (Re)build the REST client + `OctosUiAgent` from the on-disk
@@ -4124,6 +4182,13 @@ impl App {
     /// silent in M1. W04 follow-up #5 — `/api/version` probe runs
     /// off-thread so we don't stall the caller.
     fn connect_transport(&mut self, cx: &mut Cx) {
+        // `octos serve --stdio` inherits its process environment when the
+        // transport is constructed. Restore the persisted LAN ASR endpoint
+        // before spawning it; cloud TTS credentials remain in the Octos
+        // profile and are resolved by the kernel itself.
+        if let Err(error) = crate::app::login::restore_voice_runtime_env() {
+            log::warn!("voice runtime config: {error}");
+        }
         let transport_config = Self::placeholder_transport_config();
         log::info!(
             "connect transport: base_url={} profile_id={}",
@@ -5058,6 +5123,235 @@ impl App {
             self.ui.widget(cx, ids!(composer)).set_visible(cx, show);
             self.ui.button(cx, ids!(reveal_pill)).set_visible(cx, !show);
             cx.redraw_all();
+        }
+    }
+
+    fn set_voice_ui(
+        &mut self,
+        cx: &mut Cx,
+        state: VoiceUiState,
+        status: &str,
+        primary: &str,
+        hint: &str,
+    ) {
+        self.voice_state = state;
+        self.voice_status.clear();
+        self.voice_status.push_str(status);
+        self.voice_primary.clear();
+        self.voice_primary.push_str(primary);
+        self.voice_hint.clear();
+        self.voice_hint.push_str(hint);
+        self.sync_voice_web(cx);
+    }
+
+    fn sync_voice_web(&self, cx: &mut Cx) {
+        let state = match self.voice_state {
+            VoiceUiState::Idle => "idle",
+            VoiceUiState::RequestingPermission | VoiceUiState::Recording => "listening",
+            VoiceUiState::Thinking => "thinking",
+            VoiceUiState::Speaking => "speaking",
+            VoiceUiState::Error => "error",
+        };
+        let payload = serde_json::json!({
+            "state": state,
+            "status": self.voice_status,
+            "primary": self.voice_primary,
+            "hint": self.voice_hint,
+            "userText": self.voice_user_text,
+            "assistantText": self.voice_assistant_text,
+        });
+        cx.system_browser(voice_browser_id()).eval_js(&format!(
+            "window.watchVoice&&window.watchVoice.setState({payload})"
+        ));
+    }
+
+    fn handle_voice_primary(&mut self, cx: &mut Cx) {
+        match self.voice_state {
+            VoiceUiState::RequestingPermission | VoiceUiState::Recording => {
+                self.finish_voice_recording(cx)
+            }
+            VoiceUiState::Thinking => {
+                if let Some(prompt_id) = self.voice_prompt.take() {
+                    if let Some(agent) = &mut self.agent {
+                        agent.cancel_prompt(cx, prompt_id);
+                    }
+                }
+                self.remove_voice_input();
+                self.set_voice_ui(
+                    cx,
+                    VoiceUiState::Idle,
+                    "已取消",
+                    "继续说话",
+                    "点光球开始新的语音回合",
+                );
+            }
+            VoiceUiState::Speaking => {
+                self.voice_io.stop_playback(cx);
+                self.set_voice_ui(
+                    cx,
+                    VoiceUiState::Idle,
+                    "已停止播放",
+                    "继续说话",
+                    "点光球开始新的语音回合",
+                );
+            }
+            VoiceUiState::Idle | VoiceUiState::Error => self.begin_voice_recording(cx),
+        }
+    }
+
+    fn begin_voice_recording(&mut self, cx: &mut Cx) {
+        self.voice_exit_pending = false;
+        self.voice_turn_complete = false;
+        self.voice_reply_queue.clear();
+        self.voice_user_text.clear();
+        self.voice_assistant_text.clear();
+        self.voice_io.begin_recording(cx);
+        self.set_voice_ui(
+            cx,
+            VoiceUiState::RequestingPermission,
+            "正在准备麦克风…",
+            "结束录音",
+            "局域网 ASR · 云端 TTS",
+        );
+    }
+
+    fn open_voice_assistant(&mut self, cx: &mut Cx) {
+        if self.agent.is_none() || self.fg_session().is_none() {
+            self.ui
+                .label(cx, ids!(status_label))
+                .set_text(cx, "Voice unavailable: Octos session is not ready");
+            return;
+        }
+        // A generated card and the voice page use distinct native WebViews.
+        // Hide the card while voice is foregrounded, preserving its document.
+        cx.system_browser(web_card_browser_id()).detach();
+        self.ui
+            .view(cx, ids!(voice_overlay))
+            .set_visible(cx, true);
+        self.ui
+            .widget(cx, ids!(voice_web_view))
+            .set_text(cx, WATCH_VOICE_ASSISTANT);
+        #[cfg(target_os = "android")]
+        cx.hide_android_composer();
+        self.begin_voice_recording(cx);
+        cx.redraw_all();
+    }
+
+    fn finish_voice_recording(&mut self, cx: &mut Cx) {
+        let (path, size_bytes, overflowed) = match self.voice_io.finish_recording(cx) {
+            Ok(recording) => recording,
+            Err(error) => {
+                self.set_voice_ui(cx, VoiceUiState::Error, &error, "重新录音", "点击后重试");
+                return;
+            }
+        };
+        let Some(session_id) = self.fg_session() else {
+            let _ = std::fs::remove_file(&path);
+            self.set_voice_ui(
+                cx,
+                VoiceUiState::Error,
+                "Octos 会话尚未就绪",
+                "重新录音",
+                "请稍后重试",
+            );
+            return;
+        };
+        let prompt_id = self.agent.as_mut().unwrap().send_voice_turn(
+            session_id,
+            path.to_string_lossy().into_owned(),
+            size_bytes,
+        );
+        self.voice_prompt = Some(prompt_id);
+        self.voice_turn_complete = false;
+        self.voice_reply_queue.clear();
+        self.voice_input_path = Some(path);
+        self.voice_user_text = "语音已发送".to_string();
+        self.voice_assistant_text.clear();
+        self.set_fg_prompt(Some(prompt_id));
+        let hint = if overflowed {
+            "录音已达到 30 秒上限，正在处理前 30 秒"
+        } else {
+            "正在进行语音识别并生成回复"
+        };
+        self.set_voice_ui(cx, VoiceUiState::Thinking, "Octos 正在思考…", "取消", hint);
+    }
+
+    fn remove_voice_input(&mut self) {
+        if let Some(path) = self.voice_input_path.take() {
+            if let Err(error) = std::fs::remove_file(&path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("remove voice input {}: {error}", path.display());
+                }
+            }
+        }
+    }
+
+    fn close_voice_assistant(&mut self, cx: &mut Cx) {
+        if let Some(prompt_id) = self.voice_prompt.take() {
+            if let Some(agent) = &mut self.agent {
+                agent.cancel_prompt(cx, prompt_id);
+            }
+        }
+        self.voice_io.cancel_recording(cx);
+        self.voice_io.stop_playback(cx);
+        self.remove_voice_input();
+        self.voice_reply_queue.clear();
+        self.voice_turn_complete = false;
+        self.voice_exit_pending = false;
+        self.voice_state = VoiceUiState::Idle;
+        self.voice_user_text.clear();
+        self.voice_assistant_text.clear();
+        cx.system_browser(voice_browser_id()).detach();
+        self.ui
+            .view(cx, ids!(voice_overlay))
+            .set_visible(cx, false);
+        self.sync_composer(cx);
+        cx.redraw_all();
+    }
+
+    fn enqueue_voice_reply(&mut self, cx: &mut Cx, path: &str, mime: &str) {
+        if self.voice_state == VoiceUiState::Speaking {
+            self.voice_reply_queue
+                .push_back((path.to_owned(), mime.to_owned()));
+            return;
+        }
+        self.play_voice_reply(cx, path, mime);
+    }
+
+    fn play_next_voice_reply(&mut self, cx: &mut Cx) -> bool {
+        let Some((path, mime)) = self.voice_reply_queue.pop_front() else {
+            return false;
+        };
+        self.play_voice_reply(cx, &path, &mime);
+        true
+    }
+
+    fn play_voice_reply(&mut self, cx: &mut Cx, path: &str, mime: &str) {
+        if mime != "audio/wav" && !path.to_ascii_lowercase().ends_with(".wav") {
+            self.set_voice_ui(
+                cx,
+                VoiceUiState::Error,
+                "云端 TTS 返回了暂不支持的音频格式",
+                "重新录音",
+                "请将 Octos tts_cloud.encoding 配置为 wav",
+            );
+            return;
+        }
+        match self.voice_io.play_wav_file(cx, std::path::Path::new(path)) {
+            Ok(()) => self.set_voice_ui(
+                cx,
+                VoiceUiState::Speaking,
+                "Octos 正在回答",
+                "停止播放",
+                "播放结束后可以继续对话",
+            ),
+            Err(error) => self.set_voice_ui(
+                cx,
+                VoiceUiState::Error,
+                &error,
+                "重新录音",
+                "无法播放语音回复",
+            ),
         }
     }
 
@@ -6002,6 +6296,15 @@ impl MatchEvent for App {
             if let Some(inv) = action.downcast_ref::<
                 makepad_widgets::makepad_platform::event::AndroidSystemBrowserInvoke,
             >() {
+                if inv.browser_id == voice_browser_id().0.get_value() {
+                    match inv.tool.as_str() {
+                        "voice.ready" => self.sync_voice_web(cx),
+                        "voice.primary" => self.handle_voice_primary(cx),
+                        "voice.close" => self.close_voice_assistant(cx),
+                        _ => {}
+                    }
+                    continue;
+                }
                 let youtube_active =
                     self.fg().and_then(|a| a.domain.as_deref()) == Some("youtube");
                 if inv.browser_id == web_card_browser_id().0.get_value()
@@ -6035,6 +6338,29 @@ impl MatchEvent for App {
                     self.switch_to_app(cx, (self.foreground + 1) % n);
                 }
             }
+            if action
+                .downcast_ref::<makepad_widgets::makepad_platform::event::AndroidComposerVoice>()
+                .is_some()
+            {
+                self.open_voice_assistant(cx);
+            }
+            if let Some(reply) =
+                action.downcast_ref::<crate::backend::octos_ui::VoiceReplyFile>()
+            {
+                if matches!(self.voice_state, VoiceUiState::Thinking | VoiceUiState::Speaking) {
+                    self.enqueue_voice_reply(cx, &reply.path, &reply.mime);
+                }
+            }
+            if action
+                .downcast_ref::<crate::backend::octos_ui::VoiceExitRequested>()
+                .is_some()
+            {
+                if self.voice_state == VoiceUiState::Speaking {
+                    self.voice_exit_pending = true;
+                } else {
+                    self.close_voice_assistant(cx);
+                }
+            }
             // Composer QR scan → provision the LLM from the decoded JSON payload,
             // then respawn the kernel so the new provider/key takes effect.
             if let Some(scan) = action
@@ -6043,12 +6369,12 @@ impl MatchEvent for App {
                 let json = scan.json.clone();
                 match crate::app::login::apply_provision_config_json(&json) {
                     Ok(what) => {
-                        log::info!("QR provisioned LLM: {what}");
+                        log::info!("QR provisioned config: {what}");
                         self.connect_transport(cx); // respawn kernel → reads new _main.json
                         self.clear_chat(cx);
                         self.ui
                             .label(cx, ids!(status_label))
-                            .set_text(cx, &format!("LLM configured · {what}"));
+                            .set_text(cx, &format!("Configured · {what}"));
                     }
                     Err(e) => {
                         log::warn!("QR provision failed: {e}");
@@ -6580,6 +6906,8 @@ impl MatchEvent for App {
             std::env::set_var("HOME", &dir);
         }
 
+        self.voice_io.install_callbacks(cx);
+
         // Provisioning deploy (non-rooted devices): `makepad.PROVISION_DIR`
         // (→ env MAKEPAD_PROVISION_DIR) names a world-readable staging dir
         // (`adb push …/octos-provision`) whose tree is copied into the app's
@@ -6747,6 +7075,8 @@ impl AppMain for App {
         // and `viewer_overlay := ViewerOverlay {}` references resolve.
         crate::app::content_browser::script_mod(vm);
         crate::app::viewers::script_mod(vm);
+        // Full-screen watch voice UI rendered by an isolated native WebView.
+        crate::app::voice_web::script_mod(vm);
         // Swimming-octopus thinking indicator (chat screen, above composer).
         crate::app::octo_thinking::script_mod(vm);
         // W06 / M3 — register `CodingScreen` so the live-DSL
@@ -6769,6 +7099,53 @@ impl AppMain for App {
     }
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
+        if let Event::AudioDevices(devices) = event {
+            self.voice_io.handle_audio_devices(cx, devices);
+        }
+        if let Event::PermissionResult(result) = event {
+            match self.voice_io.handle_permission_result(cx, result) {
+                Some(crate::app::voice::PermissionOutcome::Granted) => self.set_voice_ui(
+                    cx,
+                    VoiceUiState::Recording,
+                    "正在聆听…",
+                    "结束录音",
+                    "说完后点击结束录音",
+                ),
+                Some(crate::app::voice::PermissionOutcome::Denied) => self.set_voice_ui(
+                    cx,
+                    VoiceUiState::Error,
+                    "没有麦克风权限",
+                    "重新申请",
+                    "请允许 Octos 使用麦克风",
+                ),
+                None => {}
+            }
+        }
+        if let Event::Signal = event {
+            if self.voice_io.take_playback_finished(cx) {
+                if self.play_next_voice_reply(cx) {
+                    // The next complete sentence is now playing.
+                } else if self.voice_exit_pending {
+                    self.close_voice_assistant(cx);
+                } else if !self.voice_turn_complete {
+                    self.set_voice_ui(
+                        cx,
+                        VoiceUiState::Thinking,
+                        "正在生成余下语音…",
+                        "返回",
+                        "Octos 正在准备下一句回复",
+                    );
+                } else {
+                    self.set_voice_ui(
+                        cx,
+                        VoiceUiState::Idle,
+                        "回答完毕",
+                        "继续说话",
+                        "点击开始下一轮对话",
+                    );
+                }
+            }
+        }
         // Central drain for async image decodes: guarantee every decoded image
         // buffer lands in the global ImageCache even when NO Image widget
         // catches the one-shot AsyncImageLoad action (a Splash card evals twice
@@ -6879,6 +7256,11 @@ impl AppMain for App {
                             .set_text(cx, &format!("Error: {}", error));
                     }
                     AgentEvent::TextAuthoritative { prompt_id, text } => {
+                        if Some(prompt_id) == self.voice_prompt {
+                            self.voice_assistant_text = text;
+                            self.sync_voice_web(cx);
+                            continue;
+                        }
                         // Same guards as TextDelta: the AMA's stream is routing
                         // metadata and a background app must not touch the
                         // shared surface.
@@ -6895,6 +7277,11 @@ impl AppMain for App {
                         CHAT_DATA.write().unwrap().authoritative_text = text;
                     }
                     AgentEvent::TextDelta { prompt_id, text } => {
+                        if Some(prompt_id) == self.voice_prompt {
+                            self.voice_assistant_text.push_str(&text);
+                            self.sync_voice_web(cx);
+                            continue;
+                        }
                         // A cancelled AMA turn's late deltas are stale routing
                         // metadata — drop them (they would otherwise fall past
                         // the AMA/foreground guards and stream as card text).
@@ -6948,6 +7335,9 @@ impl AppMain for App {
                         }
                     }
                     AgentEvent::ThinkingDelta { prompt_id, text } => {
+                        if Some(prompt_id) == self.voice_prompt {
+                            continue;
+                        }
                         if Some(prompt_id) == self.ama_prompt {
                             continue;
                         }
@@ -6978,6 +7368,22 @@ impl AppMain for App {
                         }
                     }
                     AgentEvent::TurnComplete { prompt_id, .. } => {
+                        if Some(prompt_id) == self.voice_prompt {
+                            self.voice_prompt = None;
+                            self.voice_turn_complete = true;
+                            self.remove_voice_input();
+                            self.set_fg_prompt(None);
+                            if self.voice_state == VoiceUiState::Thinking {
+                                self.set_voice_ui(
+                                    cx,
+                                    VoiceUiState::Thinking,
+                                    "正在生成语音…",
+                                    "返回",
+                                    "Octos 已完成回答，等待云端 TTS",
+                                );
+                            }
+                            continue;
+                        }
                         // A cancelled AMA turn finally completed — swallow it
                         // (its decision is void; the intent was already released
                         // by Cancel). Clear the marker so its slot is reusable.
@@ -7272,6 +7678,19 @@ impl AppMain for App {
                         }
                     }
                     AgentEvent::PromptError { prompt_id, error } => {
+                        if Some(prompt_id) == self.voice_prompt {
+                            self.voice_prompt = None;
+                            self.remove_voice_input();
+                            self.set_fg_prompt(None);
+                            self.set_voice_ui(
+                                cx,
+                                VoiceUiState::Error,
+                                &format!("语音请求失败：{error}"),
+                                "重新录音",
+                                "请检查手表到 OMiniX 与云端 TTS 的连接",
+                            );
+                            continue;
+                        }
                         if Some(prompt_id) == self.ama_prompt {
                             log::warn!("AMA turn error: {error} — falling back to weather");
                             self.ama_prompt = None;

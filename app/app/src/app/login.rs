@@ -338,35 +338,87 @@ pub fn apply_provision_string(prov: &str) -> Result<(), String> {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LlmProvisionConfig {
-    llm_family: String,
+struct ProvisionConfig {
+    #[serde(default)]
+    llm_family: Option<String>,
+    #[serde(default)]
     llm_model: Option<String>,
-    llm_key: String,
+    #[serde(default)]
+    llm_key: Option<String>,
+    /// LAN endpoint of the Mac-hosted OMiniX ASR service.
+    #[serde(default)]
+    ominix_api_url: Option<String>,
+    /// `cloud` for the watch MVP; `auto`/`local` remain accepted for parity
+    /// with Octos profile configuration.
+    #[serde(default)]
+    tts_provider: Option<String>,
+    #[serde(default)]
+    tts_cloud: Option<CloudTtsProvisionConfig>,
+    /// Secret Volcano token. Stored in the profile's masked `env_vars` path;
+    /// never included in status strings or logs.
+    #[serde(default)]
+    volc_tts_token: Option<String>,
 }
 
-/// Apply an LLM-only QR / intent payload — a self-contained JSON object:
-/// `{"llm_family":..,"llm_model":..,"llm_key":..}`.
-/// Writes the LLM provider/model/key into the octos profile config
-/// (`_main.json` → config.llm + config.env_vars.<PROVIDER>_API_KEY). Server
-/// connection/auth settings are deliberately handled only by `makepad.APP_CONFIG`.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudTtsProvisionConfig {
+    appid: String,
+    #[serde(default)]
+    voice: Option<String>,
+    #[serde(default)]
+    cluster: Option<String>,
+    #[serde(default)]
+    endpoint: Option<String>,
+}
+
+/// Apply an LLM and/or watch-voice QR / intent payload. Existing LLM-only QR
+/// payloads remain valid. Voice-only payloads can configure the LAN OMiniX ASR
+/// URL and Volcano cloud TTS without asking the user to re-enter the LLM key.
 pub fn apply_provision_config_json(payload: &str) -> Result<String, String> {
-    let config = parse_llm_provision_config(payload)?;
-    apply_llm_config(
-        &config.llm_family,
-        config.llm_model.as_deref(),
-        Some(&config.llm_key),
-    )?;
-    Ok(format!("llm={}", config.llm_family))
+    let config = parse_provision_config(payload)?;
+    let mut applied = Vec::new();
+    if let Some(family) = config.llm_family.as_deref() {
+        apply_llm_config(family, config.llm_model.as_deref(), config.llm_key.as_deref())?;
+        applied.push(format!("llm={family}"));
+    }
+    if config.ominix_api_url.is_some()
+        || config.tts_provider.is_some()
+        || config.tts_cloud.is_some()
+        || config.volc_tts_token.is_some()
+    {
+        apply_voice_config(&config)?;
+        applied.push("voice=configured".to_string());
+    }
+    Ok(applied.join(", "))
 }
 
-fn parse_llm_provision_config(payload: &str) -> Result<LlmProvisionConfig, String> {
-    let config: LlmProvisionConfig = serde_json::from_str(payload.trim())
-        .map_err(|e| format!("provision: invalid LLM config: {e}"))?;
-    if config.llm_family.trim().is_empty() {
-        return Err("provision: llm_family must not be empty".into());
+fn parse_provision_config(payload: &str) -> Result<ProvisionConfig, String> {
+    let config: ProvisionConfig = serde_json::from_str(payload.trim())
+        .map_err(|e| format!("provision: invalid config: {e}"))?;
+    let has_llm = config.llm_family.is_some() || config.llm_model.is_some() || config.llm_key.is_some();
+    let has_voice = config.ominix_api_url.is_some()
+        || config.tts_provider.is_some()
+        || config.tts_cloud.is_some()
+        || config.volc_tts_token.is_some();
+    if !has_llm && !has_voice {
+        return Err("provision: payload contains neither LLM nor voice settings".into());
     }
-    if config.llm_key.trim().is_empty() {
-        return Err("provision: llm_key must not be empty".into());
+    if has_llm {
+        let family = config
+            .llm_family
+            .as_deref()
+            .ok_or("provision: llm_family is required when configuring LLM")?;
+        if family.trim().is_empty() {
+            return Err("provision: llm_family must not be empty".into());
+        }
+        let key = config
+            .llm_key
+            .as_deref()
+            .ok_or("provision: llm_key is required when configuring LLM")?;
+        if key.trim().is_empty() {
+            return Err("provision: llm_key must not be empty".into());
+        }
     }
     if config
         .llm_model
@@ -375,7 +427,134 @@ fn parse_llm_provision_config(payload: &str) -> Result<LlmProvisionConfig, Strin
     {
         return Err("provision: llm_model must not be empty".into());
     }
+    if let Some(raw) = config.ominix_api_url.as_deref() {
+        let url = url::Url::parse(raw.trim())
+            .map_err(|e| format!("provision: invalid ominix_api_url: {e}"))?;
+        if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+            return Err("provision: ominix_api_url must be an http(s) URL with a host".into());
+        }
+    }
+    if let Some(provider) = config.tts_provider.as_deref() {
+        if !matches!(provider, "auto" | "local" | "cloud" | "volcano") {
+            return Err("provision: tts_provider must be auto, local, cloud, or volcano".into());
+        }
+    }
+    if let Some(cloud) = config.tts_cloud.as_ref() {
+        if cloud.appid.trim().is_empty() {
+            return Err("provision: tts_cloud.appid must not be empty".into());
+        }
+        if let Some(endpoint) = cloud.endpoint.as_deref() {
+            let url = url::Url::parse(endpoint.trim())
+                .map_err(|e| format!("provision: invalid tts_cloud.endpoint: {e}"))?;
+            if url.scheme() != "https" || url.host_str() != Some("openspeech.bytedance.com") {
+                return Err(
+                    "provision: tts_cloud.endpoint must use https://openspeech.bytedance.com"
+                        .into(),
+                );
+            }
+        }
+    }
+    if config
+        .volc_tts_token
+        .as_deref()
+        .is_some_and(|token| token.trim().is_empty())
+    {
+        return Err("provision: volc_tts_token must not be empty".into());
+    }
     Ok(config)
+}
+
+/// Merge watch voice settings into `_main.json`. The cloud encoding is pinned
+/// to WAV because the armv7 client intentionally avoids an MP3 decoder in the
+/// first vertical slice.
+fn apply_voice_config(config: &ProvisionConfig) -> Result<(), String> {
+    let path = octos_profile_config_path()?;
+    let mut root: serde_json::Value = if path.exists() {
+        serde_json::from_slice(&std::fs::read(&path).map_err(|e| e.to_string())?)
+            .map_err(|e| format!("parse {}: {e}", path.display()))?
+    } else {
+        serde_json::json!({})
+    };
+    if !root.get("config").is_some_and(|value| value.is_object()) {
+        root["config"] = serde_json::json!({});
+    }
+    if root.get("id").and_then(|value| value.as_str()).is_none() {
+        root["id"] = serde_json::json!("_main");
+    }
+    if root.get("name").and_then(|value| value.as_str()).is_none() {
+        root["name"] = serde_json::json!("Main");
+    }
+    root["enabled"] = serde_json::json!(true);
+    let now = chrono::Utc::now().to_rfc3339();
+    if root.get("created_at").and_then(|value| value.as_str()).is_none() {
+        root["created_at"] = serde_json::json!(now);
+    }
+    root["updated_at"] = serde_json::json!(now);
+
+    let cfg = root["config"].as_object_mut().unwrap();
+    if let Some(provider) = config.tts_provider.as_deref() {
+        cfg.insert("tts_provider".into(), serde_json::json!(provider));
+    }
+    if let Some(cloud) = config.tts_cloud.as_ref() {
+        let mut value = serde_json::Map::new();
+        value.insert("appid".into(), serde_json::json!(cloud.appid.trim()));
+        value.insert("encoding".into(), serde_json::json!("wav"));
+        if let Some(voice) = cloud.voice.as_deref().filter(|value| !value.trim().is_empty()) {
+            value.insert("voice".into(), serde_json::json!(voice.trim()));
+        }
+        if let Some(cluster) = cloud.cluster.as_deref().filter(|value| !value.trim().is_empty()) {
+            value.insert("cluster".into(), serde_json::json!(cluster.trim()));
+        }
+        if let Some(endpoint) = cloud.endpoint.as_deref().filter(|value| !value.trim().is_empty()) {
+            value.insert("endpoint".into(), serde_json::json!(endpoint.trim()));
+        }
+        cfg.insert("tts_cloud".into(), serde_json::Value::Object(value));
+    }
+
+    let env = cfg.entry("env_vars").or_insert_with(|| serde_json::json!({}));
+    if !env.is_object() {
+        *env = serde_json::json!({});
+    }
+    if let Some(url) = config.ominix_api_url.as_deref() {
+        let url = url.trim().trim_end_matches('/');
+        env["OMINIX_API_URL"] = serde_json::json!(url);
+        // The embedded kernel is spawned as a child and inherits this process
+        // environment. Persisting above covers subsequent app launches.
+        std::env::set_var("OMINIX_API_URL", url);
+    }
+    if let Some(token) = config.volc_tts_token.as_deref() {
+        env["VOLC_TTS_TOKEN"] = serde_json::json!(token.trim());
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, serde_json::to_vec_pretty(&root).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    log::info!("provisioned watch voice configuration (secrets redacted)");
+    Ok(())
+}
+
+/// Restore platform-wide voice environment before `octos serve --stdio` is
+/// spawned. Per-profile TTS secrets are resolved by Octos itself; only the
+/// platform-wide OMiniX endpoint must be copied into the child environment.
+pub fn restore_voice_runtime_env() -> Result<(), String> {
+    let path = octos_profile_config_path()?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let root: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?,
+    )
+    .map_err(|e| format!("parse {}: {e}", path.display()))?;
+    if let Some(url) = root
+        .pointer("/config/env_vars/OMINIX_API_URL")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+    {
+        std::env::set_var("OMINIX_API_URL", url.trim());
+    }
+    Ok(())
 }
 
 /// The octos provider `family_id` → the env var octos reads its key from.
@@ -536,7 +715,7 @@ mod tests {
 
     #[test]
     fn llm_qr_payload_rejects_server_configuration() {
-        let result = parse_llm_provision_config(
+        let result = parse_provision_config(
             r#"{"llm_family":"zai","llm_key":"sk-test","base_url":"https://example.com"}"#,
         );
         assert!(result.unwrap_err().contains("unknown field `base_url`"));
@@ -544,12 +723,39 @@ mod tests {
 
     #[test]
     fn llm_qr_payload_accepts_only_llm_configuration() {
-        let config = parse_llm_provision_config(
+        let config = parse_provision_config(
             r#"{"llm_family":"zai","llm_model":"glm-5.2","llm_key":"sk-test"}"#,
         )
         .unwrap();
-        assert_eq!(config.llm_family, "zai");
+        assert_eq!(config.llm_family.as_deref(), Some("zai"));
         assert_eq!(config.llm_model.as_deref(), Some("glm-5.2"));
-        assert_eq!(config.llm_key, "sk-test");
+        assert_eq!(config.llm_key.as_deref(), Some("sk-test"));
+    }
+
+    #[test]
+    fn voice_qr_payload_accepts_lan_asr_and_cloud_tts() {
+        let config = parse_provision_config(
+            r#"{
+                "ominix_api_url":"http://192.168.1.20:8090",
+                "tts_provider":"cloud",
+                "tts_cloud":{"appid":"123","voice":"BV001_streaming"},
+                "volc_tts_token":"secret"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.ominix_api_url.as_deref(),
+            Some("http://192.168.1.20:8090")
+        );
+        assert_eq!(config.tts_provider.as_deref(), Some("cloud"));
+        assert_eq!(config.tts_cloud.unwrap().appid, "123");
+    }
+
+    #[test]
+    fn voice_qr_rejects_untrusted_tts_endpoint() {
+        let result = parse_provision_config(
+            r#"{"tts_cloud":{"appid":"123","endpoint":"https://example.com/tts"}}"#,
+        );
+        assert!(result.unwrap_err().contains("openspeech.bytedance.com"));
     }
 }

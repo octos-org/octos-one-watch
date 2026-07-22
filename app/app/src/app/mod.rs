@@ -17,4 +17,6 @@ pub mod octo_thinking;
 pub mod producers;
 pub mod sessions;
 pub mod task_dock;
+pub mod voice;
+pub mod voice_web;
 pub mod viewers;

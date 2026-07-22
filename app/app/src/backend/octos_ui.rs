@@ -25,8 +25,8 @@ use octos_core::app_ui::{
     AppUiSubmitPrompt as TurnStartParams,
 };
 use octos_core::ui_protocol::{
-    ApprovalDecision, ApprovalId, ApprovalRespondParams, ReasoningEffortLevel, TaskOutputReadParams,
-    UiCursor,
+    ApprovalDecision, ApprovalId, ApprovalRespondParams, FileRef, ReasoningEffortLevel,
+    TaskOutputReadParams, UiCursor,
 };
 use octos_core::{ui_protocol::TurnId, SessionKey};
 use tokio::runtime::Runtime;
@@ -46,6 +46,19 @@ pub struct SessionResumeHydrated {
     /// ("user" / "assistant" / other — the App filters).
     pub messages: Vec<(String, String)>,
 }
+
+/// A complete synthesized sentence produced by the embedded kernel. The watch
+/// deliberately does not negotiate streaming voice chunks in the MVP, so the
+/// kernel emits ordered local file paths that the app queues for playback.
+#[derive(Debug, Clone)]
+pub struct VoiceReplyFile {
+    pub path: String,
+    pub mime: String,
+}
+
+/// The voice model asked to leave voice mode after its farewell finishes.
+#[derive(Debug, Clone, Copy)]
+pub struct VoiceExitRequested;
 
 /// `Agent` implementation backed by the Octos UI Protocol over WebSocket.
 pub struct OctosUiAgent {
@@ -236,6 +249,73 @@ impl OctosUiAgent {
             cmd_tx: self.cmd_tx.clone(),
             runtime: self._runtime.handle().clone(),
         }
+    }
+
+    /// Resolve the workspace-relative path carried by `file/attached` to the
+    /// embedded kernel's real per-session workspace. This mirrors Octos'
+    /// `runtime::session::resolve_workspace_root` default:
+    /// `<profile-data>/users/<encoded base session>/workspace`.
+    fn embedded_file_path(&self, session_id: &SessionKey, path: &str) -> Option<String> {
+        if !self.stdio_transport {
+            return Some(path.to_owned());
+        }
+        let filename = attached_filename(path)?;
+        let Ok(app_home) = std::env::var("HOME") else {
+            log::warn!("octos-ui-agent: HOME is unavailable; dropping attached voice file");
+            return None;
+        };
+        let profile = session_id.profile_id().unwrap_or(&self.fallback_profile);
+        let encoded_session = encode_path_component(session_id.base_key());
+        Some(
+            std::path::Path::new(&app_home)
+            .join("octos-home/.octos/profiles")
+            .join(profile)
+            .join("data/users")
+            .join(encoded_session)
+            .join("workspace")
+            .join(filename)
+            .to_string_lossy()
+            .into_owned(),
+        )
+    }
+
+    /// Start an audio-backed turn in the same local session used by the watch
+    /// app. The absolute app-private path is valid for both sides of the stdio
+    /// transport; Octos reads it, base64-encodes it and calls remote OMiniX.
+    pub fn send_voice_turn(
+        &mut self,
+        session_id: SessionId,
+        path: String,
+        size_bytes: u64,
+    ) -> PromptId {
+        let prompt_id = PromptId::new();
+        let turn_id = TurnId::new();
+        self.turn_ids.insert(prompt_id, turn_id.clone());
+        self.prompt_ids.insert(turn_id.clone(), prompt_id);
+        let Some(key) = self.session_keys.get(&session_id).cloned() else {
+            log::warn!("octos-ui-agent: voice turn for unknown session");
+            return prompt_id;
+        };
+        self.prompt_sessions.insert(prompt_id, key.clone());
+        self.post(OutboundCommand::StartTurn(TurnStartParams {
+            session_id: key,
+            turn_id,
+            input: vec![InputItem::Text {
+                text: String::new(),
+            }],
+            media: vec![FileRef {
+                path,
+                mime: "audio/wav".to_string(),
+                size_bytes,
+            }],
+            topic: None,
+            rewrite_for: None,
+            // Voice latency matters more than deep chain-of-thought; keep the
+            // profile default instead of inheriting the text composer's toggle.
+            reasoning_effort: None,
+            live_video: false,
+        }));
+        prompt_id
     }
 
     /// Translate one `TransportEvent` into zero-or-more `AgentEvent`s.
@@ -522,6 +602,33 @@ impl OctosUiAgent {
                     }]
                 })
                 .unwrap_or_default(),
+            UiNotification::FileAttached(ev)
+                if ev
+                    .mime
+                    .as_deref()
+                    .is_some_and(|mime| mime.starts_with("audio/"))
+                    || ev.path.ends_with(".wav")
+                    || ev.path.ends_with(".mp3") =>
+            {
+                if let Some(path) = self.embedded_file_path(&ev.session_id, &ev.path) {
+                    Cx::post_action(VoiceReplyFile {
+                        path,
+                        mime: ev
+                            .mime
+                            .unwrap_or_else(|| "application/octet-stream".to_string()),
+                    });
+                } else {
+                    log::warn!(
+                        "octos-ui-agent: rejected unsafe attached voice path {:?}",
+                        ev.path
+                    );
+                }
+                Vec::new()
+            }
+            UiNotification::VoiceExit(_) => {
+                Cx::post_action(VoiceExitRequested);
+                Vec::new()
+            }
             // Drained into APP_STATE by `fold_into_store` above. The
             // TaskDock widget (`app/src/app/task_dock.rs`) reads them back
             // via `APP_STATE.tool_calls` / `APP_STATE.tasks` on each redraw,
@@ -553,7 +660,6 @@ impl OctosUiAgent {
             | UiNotification::VisualGenerating(_)
             | UiNotification::VisualSucceeded(_)
             | UiNotification::VisualFailed(_)
-            | UiNotification::VoiceExit(_)
             | UiNotification::MessagePersisted(_)
             | UiNotification::TurnSpawnComplete(_)
             | UiNotification::FileAttached(_)
@@ -581,6 +687,56 @@ impl OctosUiAgent {
             // Keep the explicit arm so dependency-head updates still compile.
             | UiNotification::EnvelopeV2(_) => Vec::new(),
         }
+    }
+}
+
+/// Keep this byte-for-byte compatible with
+/// `octos_bus::session::encode_path_component` without pulling the entire bus
+/// crate into the watch client just for one small filesystem contract.
+fn encode_path_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'_') {
+            encoded.push(*byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+/// The embedded kernel emits TTS artifacts as bare workspace filenames. Keep
+/// that contract deliberately narrow so a malformed notification cannot make
+/// the watch read an arbitrary app-private file.
+fn attached_filename(path: &str) -> Option<&std::ffi::OsStr> {
+    let mut components = std::path::Path::new(path).components();
+    let std::path::Component::Normal(filename) = components.next()? else {
+        return None;
+    };
+    components.next().is_none().then_some(filename)
+}
+
+#[cfg(test)]
+mod voice_file_tests {
+    use super::{attached_filename, encode_path_component};
+
+    #[test]
+    fn accepts_only_bare_attached_filenames() {
+        assert_eq!(
+            attached_filename("reply.wav").and_then(|name| name.to_str()),
+            Some("reply.wav")
+        );
+        assert!(attached_filename("").is_none());
+        assert!(attached_filename(".").is_none());
+        assert!(attached_filename("../secret.wav").is_none());
+        assert!(attached_filename("nested/reply.wav").is_none());
+        assert!(attached_filename("/data/local/tmp/reply.wav").is_none());
+    }
+
+    #[test]
+    fn encodes_session_path_components_like_octos() {
+        assert_eq!(encode_path_component("voice/session:1"), "voice%2Fsession%3A1");
+        assert_eq!(encode_path_component("abc-123_DEF"), "abc-123_DEF");
     }
 }
 

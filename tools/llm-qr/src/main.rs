@@ -88,7 +88,7 @@ fn print_help() {
          --family <id>     provider family_id (zai, deepseek, openai, anthropic, …)\n  \
          --model  <id>     model_id (e.g. glm-5.2, deepseek-v4-pro)\n  \
          --key    <key>    the provider API key (stays on-device once scanned)\n  \
-         --json   <json>   encode an LLM-only JSON payload instead\n  \
+         --json   <json>   encode an LLM and/or voice provisioning payload\n  \
          -h, --help        show this help"
     );
 }
@@ -98,7 +98,7 @@ fn build_payload(a: &Args) -> Result<String, String> {
     if let Some(json) = &a.json {
         let v: Value =
             serde_json::from_str(json).map_err(|e| format!("--json is not valid JSON: {e}"))?;
-        validate_llm_payload(&v)?;
+        validate_provision_payload(&v)?;
         return serde_json::to_string(&v).map_err(|e| format!("serialize payload: {e}"));
     }
     let (Some(family), Some(key)) = (&a.family, &a.key) else {
@@ -111,30 +111,68 @@ fn build_payload(a: &Args) -> Result<String, String> {
         m.insert("llm_model".into(), Value::String(model.clone()));
     }
     let payload = Value::Object(m);
-    validate_llm_payload(&payload)?;
+    validate_provision_payload(&payload)?;
     serde_json::to_string(&payload).map_err(|e| format!("serialize payload: {e}"))
 }
 
-fn validate_llm_payload(value: &Value) -> Result<(), String> {
+fn validate_provision_payload(value: &Value) -> Result<(), String> {
     let object = value
         .as_object()
-        .ok_or_else(|| "LLM payload must be a JSON object".to_string())?;
+        .ok_or_else(|| "provisioning payload must be a JSON object".to_string())?;
     for field in object.keys() {
-        if !matches!(field.as_str(), "llm_family" | "llm_model" | "llm_key") {
+        if !matches!(
+            field.as_str(),
+            "llm_family"
+                | "llm_model"
+                | "llm_key"
+                | "ominix_api_url"
+                | "tts_provider"
+                | "tts_cloud"
+                | "volc_tts_token"
+        ) {
             return Err(format!(
-                "field '{field}' is not allowed in an LLM QR; server configuration uses makepad.APP_CONFIG"
+                "field '{field}' is not allowed in a provisioning QR; server configuration uses makepad.APP_CONFIG"
             ));
         }
     }
-    for required in ["llm_family", "llm_key"] {
-        match object.get(required).and_then(Value::as_str) {
-            Some(value) if !value.trim().is_empty() => {}
-            _ => return Err(format!("field '{required}' must be a non-empty string")),
+    let has_llm = object.keys().any(|key| key.starts_with("llm_"));
+    let has_voice = object.contains_key("ominix_api_url")
+        || object.contains_key("tts_provider")
+        || object.contains_key("tts_cloud")
+        || object.contains_key("volc_tts_token");
+    if !has_llm && !has_voice {
+        return Err("payload contains neither LLM nor voice settings".into());
+    }
+    if has_llm {
+        for required in ["llm_family", "llm_key"] {
+            match object.get(required).and_then(Value::as_str) {
+                Some(value) if !value.trim().is_empty() => {}
+                _ => return Err(format!("field '{required}' must be a non-empty string")),
+            }
         }
     }
     if let Some(model) = object.get("llm_model") {
         if model.as_str().is_none_or(|value| value.trim().is_empty()) {
             return Err("field 'llm_model' must be a non-empty string".into());
+        }
+    }
+    for field in ["ominix_api_url", "tts_provider", "volc_tts_token"] {
+        if let Some(value) = object.get(field) {
+            if value.as_str().is_none_or(|value| value.trim().is_empty()) {
+                return Err(format!("field '{field}' must be a non-empty string"));
+            }
+        }
+    }
+    if let Some(cloud) = object.get("tts_cloud") {
+        let cloud = cloud
+            .as_object()
+            .ok_or("field 'tts_cloud' must be a JSON object")?;
+        if cloud
+            .get("appid")
+            .and_then(Value::as_str)
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err("field 'tts_cloud.appid' must be a non-empty string".into());
         }
     }
     Ok(())
@@ -208,5 +246,21 @@ mod tests {
             ),
         });
         assert!(result.unwrap_err().contains("not allowed"));
+    }
+
+    #[test]
+    fn json_payload_accepts_watch_voice_config() {
+        let payload = build_payload(&Args {
+            family: None,
+            model: None,
+            key: None,
+            json: Some(
+                r#"{"ominix_api_url":"http://192.168.1.20:8090","tts_provider":"cloud","tts_cloud":{"appid":"volc-app","voice":"zh_female_cancan_mars_bigtts"},"volc_tts_token":"token"}"#.into(),
+            ),
+        })
+        .unwrap();
+        let value: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(value["tts_provider"], "cloud");
+        assert_eq!(value["tts_cloud"]["appid"], "volc-app");
     }
 }

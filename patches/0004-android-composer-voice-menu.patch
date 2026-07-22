@@ -1,0 +1,31 @@
+diff --git a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
+--- a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
++++ b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadActivity.java
+@@ -2755,6 +2755,7 @@ public class MakepadActivity
+                     popup.getMenu().add(Menu.NONE, 1, 1, "New conversation");
+                     popup.getMenu().add(Menu.NONE, 2, 2, "Switch app");
+                     popup.getMenu().add(Menu.NONE, 3, 3, "Scan config QR");
++                    popup.getMenu().add(Menu.NONE, 4, 0, "Voice assistant");
+                     popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+                         @Override
+                         public boolean onMenuItemClick(MenuItem item) {
+@@ -2763,6 +2764,7 @@ public class MakepadActivity
+                                 case 1: MakepadNative.onComposerNewApp(); return true;
+                                 case 2: MakepadNative.onComposerSwitch(); return true;
+                                 case 3: showQrScanner(); return true;
++                                case 4: MakepadNative.onComposerVoice(); return true;
+                                 default: return false;
+                             }
+                         }
+diff --git a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadNative.java b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadNative.java
+--- a/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadNative.java
++++ b/tools/cargo_makepad/src/android/java/dev/makepad/android/MakepadNative.java
+@@ -67,6 +67,7 @@ public class MakepadNative {
+     // Composer control buttons: open another app / switch to the next app.
+     public native static void onComposerNewApp();
+     public native static void onComposerSwitch();
++    public native static void onComposerVoice();
+-
++
+     // A runhtml web-card's JS called octos.invoke(tool, args) — bridged in from the
+     // WebView's "octos_native" JavascriptInterface. Rust dispatches the tool and

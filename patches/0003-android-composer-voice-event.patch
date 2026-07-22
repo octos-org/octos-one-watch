@@ -1,0 +1,62 @@
+diff --git a/platform/src/event/event.rs b/platform/src/event/event.rs
+index a9ac3dd3a..d924aeeb9 100644
+--- a/platform/src/event/event.rs
++++ b/platform/src/event/event.rs
+@@ -74,6 +74,11 @@ pub struct AndroidDeepLink {
+ #[derive(Clone, Debug, Default)]
+ pub struct AndroidComposerSwitch;
+-
++
++/// The native Android floating composer's voice-assistant menu item was
++/// tapped. Posted as a bare action so the app can enter its voice surface.
++#[derive(Clone, Debug, Default)]
++pub struct AndroidComposerVoice;
++
+ /// The composer's QR scanner decoded a payload (the JSON LLM-provisioning config).
+ /// The app applies it via `login::apply_provision_config_json`.
+ #[derive(Clone, Debug, Default)]
+diff --git a/platform/src/os/linux/android/android.rs b/platform/src/os/linux/android/android.rs
+index 7cdb3c3ab..788b6b46e 100644
+--- a/platform/src/os/linux/android/android.rs
++++ b/platform/src/os/linux/android/android.rs
+@@ -1338,6 +1338,11 @@ pub(crate) fn handle_message(&mut self, msg: FromJavaMessage) {
+                 Cx::post_action(crate::event::AndroidComposerSwitch);
+                 self.handle_action_receiver();
+             }
++            FromJavaMessage::ComposerVoice => {
++                // Native composer menu — enter the watch voice assistant.
++                Cx::post_action(crate::event::AndroidComposerVoice);
++                self.handle_action_receiver();
++            }
+             FromJavaMessage::QrScanned { json } => {
+                 // The composer QR scanner decoded a payload — hand it to the app
+                 // (it applies it as an LLM-provisioning config). Drain this tick.
+diff --git a/platform/src/os/linux/android/android_jni.rs b/platform/src/os/linux/android/android_jni.rs
+index 25dbaaae7..104169916 100644
+--- a/platform/src/os/linux/android/android_jni.rs
++++ b/platform/src/os/linux/android/android_jni.rs
+@@ -235,6 +235,7 @@ pub enum FromJavaMessage {
+     },
+     ComposerNewApp,
+     ComposerSwitch,
++    ComposerVoice,
+     SystemBrowserInvoke {
+         browser_id: i64,
+         call_id: i64,
+@@ -1475,6 +1476,15 @@ extern "C" fn Java_dev_makepad_android_MakepadNative_onWebSocketError(
+     send_from_java_message(FromJavaMessage::ComposerSwitch);
+ }
+-
++
++/// The native composer's voice-assistant menu item was tapped.
++#[no_mangle]
++pub unsafe extern "C" fn Java_dev_makepad_android_MakepadNative_onComposerVoice(
++    _env: *mut jni_sys::JNIEnv,
++    _: jni_sys::jclass,
++) {
++    send_from_java_message(FromJavaMessage::ComposerVoice);
++}
++
+ /// A `runhtml` card's JS called `octos.invoke(tool, args)` — bridged here via the
+ /// WebView's `octos_native` JavascriptInterface. Delivered to the WebCard widget
+ /// as an `AndroidSystemBrowserInvoke` action; the widget dispatches `tool` and
