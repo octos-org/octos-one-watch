@@ -9,12 +9,25 @@ use makepad_widgets::makepad_platform::{
     permission::{Permission, PermissionResult, PermissionStatus},
     Cx, CxMediaApi, SignalToUI,
 };
+use makepad_widgets::log;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 const TARGET_SAMPLE_RATE: u32 = 16_000;
 const MAX_RECORDING_SECS: usize = 30;
+const VAD_FRAME_MS: usize = 20;
+const VAD_PRE_ROLL_MS: usize = 240;
+const VAD_START_FRAMES: usize = 4;
+const VAD_MIN_VOICED_FRAMES: usize = 10;
+const VAD_END_SILENCE_FRAMES: usize = 40;
+const VAD_INITIAL_NOISE_FLOOR: f32 = 0.003;
+const VAD_MIN_START_RMS: f32 = 0.012;
+const VAD_MIN_CONTINUE_RMS: f32 = 0.008;
+const VAD_EVENT_SPEECH_STARTED: u8 = 1 << 0;
+const VAD_EVENT_SPEECH_ENDED: u8 = 1 << 1;
+const VAD_EVENT_SPEECH_REJECTED: u8 = 1 << 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionOutcome {
@@ -22,11 +35,172 @@ pub enum PermissionOutcome {
     Denied,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VadEvents {
+    pub speech_started: bool,
+    pub speech_ended: bool,
+    pub speech_rejected: bool,
+}
+
 #[derive(Default)]
 struct CaptureBuffer {
     sample_rate: u32,
     samples: Vec<f32>,
+    pre_roll: VecDeque<f32>,
     overflowed: bool,
+    vad: VadDetector,
+}
+
+impl CaptureBuffer {
+    fn prepare_rate(&mut self, sample_rate: u32) {
+        if self.sample_rate == sample_rate {
+            return;
+        }
+        self.sample_rate = sample_rate;
+        self.samples.clear();
+        self.pre_roll.clear();
+        self.overflowed = false;
+        self.vad.reset(sample_rate);
+    }
+
+    fn push_pre_roll(&mut self, sample: f32) {
+        let max_samples = self.sample_rate as usize * VAD_PRE_ROLL_MS / 1_000;
+        self.pre_roll.push_back(sample);
+        while self.pre_roll.len() > max_samples {
+            self.pre_roll.pop_front();
+        }
+    }
+
+    fn commit_pre_roll(&mut self) {
+        self.samples.reserve(self.pre_roll.len());
+        while let Some(sample) = self.pre_roll.pop_front() {
+            self.samples.push(sample);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VadFrameEvent {
+    None,
+    SpeechStarted,
+    SpeechEnded,
+    SpeechRejected,
+}
+
+struct VadDetector {
+    frame_samples: usize,
+    frame_len: usize,
+    frame_sum_squares: f64,
+    noise_floor: f32,
+    start_frames: usize,
+    voiced_frames: usize,
+    silence_frames: usize,
+    speech_started: bool,
+    ended: bool,
+}
+
+impl Default for VadDetector {
+    fn default() -> Self {
+        Self {
+            frame_samples: 0,
+            frame_len: 0,
+            frame_sum_squares: 0.0,
+            noise_floor: VAD_INITIAL_NOISE_FLOOR,
+            start_frames: 0,
+            voiced_frames: 0,
+            silence_frames: 0,
+            speech_started: false,
+            ended: false,
+        }
+    }
+}
+
+impl VadDetector {
+    fn reset(&mut self, sample_rate: u32) {
+        *self = Self {
+            frame_samples: (sample_rate as usize * VAD_FRAME_MS / 1_000).max(1),
+            ..Self::default()
+        };
+    }
+
+    fn push_sample(&mut self, sample: f32) -> VadFrameEvent {
+        self.frame_sum_squares += f64::from(sample) * f64::from(sample);
+        self.frame_len += 1;
+        if self.frame_len < self.frame_samples {
+            return VadFrameEvent::None;
+        }
+        let rms = (self.frame_sum_squares / self.frame_len as f64).sqrt() as f32;
+        self.frame_len = 0;
+        self.frame_sum_squares = 0.0;
+        self.observe_frame(rms)
+    }
+
+    fn observe_frame(&mut self, rms: f32) -> VadFrameEvent {
+        if self.ended {
+            return VadFrameEvent::None;
+        }
+        if !self.speech_started {
+            let threshold = (self.noise_floor * 3.0).max(VAD_MIN_START_RMS);
+            if rms >= threshold {
+                self.start_frames += 1;
+            } else {
+                self.start_frames = 0;
+                self.update_noise_floor(rms);
+            }
+            if self.start_frames >= VAD_START_FRAMES {
+                self.speech_started = true;
+                self.voiced_frames = self.start_frames;
+                self.silence_frames = 0;
+                log::info!(
+                    "watch-vad: speech started rms={rms:.4} noise={:.4}",
+                    self.noise_floor
+                );
+                return VadFrameEvent::SpeechStarted;
+            }
+            return VadFrameEvent::None;
+        }
+
+        let threshold = (self.noise_floor * 1.8).max(VAD_MIN_CONTINUE_RMS);
+        if rms >= threshold {
+            self.voiced_frames += 1;
+            self.silence_frames = 0;
+        } else {
+            self.silence_frames += 1;
+            self.update_noise_floor(rms);
+        }
+        if self.silence_frames < VAD_END_SILENCE_FRAMES {
+            return VadFrameEvent::None;
+        }
+        if self.voiced_frames >= VAD_MIN_VOICED_FRAMES {
+            self.ended = true;
+            log::info!(
+                "watch-vad: speech ended voiced_ms={} silence_ms={}",
+                self.voiced_frames * VAD_FRAME_MS,
+                self.silence_frames * VAD_FRAME_MS
+            );
+            VadFrameEvent::SpeechEnded
+        } else {
+            self.start_frames = 0;
+            self.voiced_frames = 0;
+            self.silence_frames = 0;
+            self.speech_started = false;
+            log::debug!("watch-vad: rejected short sound");
+            VadFrameEvent::SpeechRejected
+        }
+    }
+
+    fn update_noise_floor(&mut self, rms: f32) {
+        let sample = rms.clamp(0.0005, 0.03);
+        self.noise_floor = self.noise_floor * 0.98 + sample * 0.02;
+    }
+
+    fn force_end(&mut self) -> bool {
+        if self.ended {
+            return false;
+        }
+        self.ended = true;
+        true
+    }
 }
 
 #[derive(Default)]
@@ -47,6 +221,8 @@ pub struct WatchVoiceIo {
     wants_recording: bool,
     capture_enabled: Arc<AtomicBool>,
     capture: Arc<Mutex<CaptureBuffer>>,
+    vad_events: Arc<AtomicU8>,
+    vad_signal: SignalToUI,
     playback: Arc<Mutex<PlaybackBuffer>>,
     playback_finished: Arc<AtomicBool>,
     playback_signal: SignalToUI,
@@ -62,6 +238,8 @@ impl Default for WatchVoiceIo {
             wants_recording: false,
             capture_enabled: Arc::new(AtomicBool::new(false)),
             capture: Arc::new(Mutex::new(CaptureBuffer::default())),
+            vad_events: Arc::new(AtomicU8::new(0)),
+            vad_signal: SignalToUI::new(),
             playback: Arc::new(Mutex::new(PlaybackBuffer::default())),
             playback_finished: Arc::new(AtomicBool::new(false)),
             playback_signal: SignalToUI::new(),
@@ -77,6 +255,8 @@ impl WatchVoiceIo {
 
         let capture_enabled = self.capture_enabled.clone();
         let capture = self.capture.clone();
+        let vad_events = self.vad_events.clone();
+        let vad_signal = self.vad_signal.clone();
         cx.audio_input(0, move |info, input: &AudioBuffer| {
             if !capture_enabled.load(Ordering::Relaxed)
                 || input.frame_count() == 0
@@ -88,25 +268,50 @@ impl WatchVoiceIo {
                 return;
             };
             let rate = info.sample_rate.round().max(1.0) as u32;
-            if state.sample_rate != rate {
-                state.sample_rate = rate;
-                state.samples.clear();
-                state.overflowed = false;
-            }
+            state.prepare_rate(rate);
             let max_samples = rate as usize * MAX_RECORDING_SECS;
-            let frames_left = max_samples.saturating_sub(state.samples.len());
-            let frames = input.frame_count().min(frames_left);
-            for frame in 0..frames {
+            for frame in 0..input.frame_count() {
                 let mut mono = 0.0f32;
                 for channel in 0..input.channel_count() {
                     mono += input.channel(channel)[frame];
                 }
-                state
-                    .samples
-                    .push(mono / input.channel_count() as f32);
-            }
-            if frames < input.frame_count() {
-                state.overflowed = true;
+                mono /= input.channel_count() as f32;
+                if state.vad.speech_started {
+                    if state.samples.len() < max_samples {
+                        state.samples.push(mono);
+                    }
+                } else {
+                    state.push_pre_roll(mono);
+                }
+
+                match state.vad.push_sample(mono) {
+                    VadFrameEvent::SpeechStarted => {
+                        state.commit_pre_roll();
+                        vad_events.fetch_or(VAD_EVENT_SPEECH_STARTED, Ordering::Release);
+                        vad_signal.set();
+                    }
+                    VadFrameEvent::SpeechEnded => {
+                        capture_enabled.store(false, Ordering::Release);
+                        vad_events.fetch_or(VAD_EVENT_SPEECH_ENDED, Ordering::Release);
+                        vad_signal.set();
+                        break;
+                    }
+                    VadFrameEvent::SpeechRejected => {
+                        state.samples.clear();
+                        state.pre_roll.clear();
+                        vad_events.fetch_or(VAD_EVENT_SPEECH_REJECTED, Ordering::Release);
+                        vad_signal.set();
+                    }
+                    VadFrameEvent::None => {}
+                }
+
+                if state.samples.len() >= max_samples && state.vad.force_end() {
+                    state.overflowed = true;
+                    capture_enabled.store(false, Ordering::Release);
+                    vad_events.fetch_or(VAD_EVENT_SPEECH_ENDED, Ordering::Release);
+                    vad_signal.set();
+                    break;
+                }
             }
         });
 
@@ -164,6 +369,7 @@ impl WatchVoiceIo {
         if let Ok(mut state) = self.capture.lock() {
             *state = CaptureBuffer::default();
         }
+        self.vad_events.store(0, Ordering::Release);
         self.permission_request = Some(cx.request_permission(Permission::AudioInput));
         // Starting immediately is safe on already-granted devices and mirrors
         // Makepad's WindowVoiceInput behaviour. Android will gate the stream
@@ -209,6 +415,7 @@ impl WatchVoiceIo {
         self.wants_recording = false;
         self.permission_request = None;
         self.capture_enabled.store(false, Ordering::Release);
+        self.vad_events.store(0, Ordering::Release);
         cx.use_audio_inputs(&[]);
         if let Ok(mut state) = self.capture.lock() {
             *state = CaptureBuffer::default();
@@ -221,6 +428,7 @@ impl WatchVoiceIo {
         self.wants_recording = false;
         self.permission_request = None;
         self.capture_enabled.store(false, Ordering::Release);
+        self.vad_events.store(0, Ordering::Release);
         cx.use_audio_inputs(&[]);
 
         let (rate, samples, overflowed) = {
@@ -247,6 +455,15 @@ impl WatchVoiceIo {
         let path = dir.join(format!("watch-{stamp}.wav"));
         std::fs::write(&path, &wav).map_err(|e| format!("写入录音失败: {e}"))?;
         Ok((path, wav.len() as u64, overflowed))
+    }
+
+    pub fn take_vad_events(&self) -> VadEvents {
+        let events = self.vad_events.swap(0, Ordering::AcqRel);
+        VadEvents {
+            speech_started: events & VAD_EVENT_SPEECH_STARTED != 0,
+            speech_ended: events & VAD_EVENT_SPEECH_ENDED != 0,
+            speech_rejected: events & VAD_EVENT_SPEECH_REJECTED != 0,
+        }
     }
 
     pub fn play_wav_file(&mut self, cx: &mut Cx, path: &Path) -> Result<(), String> {
@@ -419,5 +636,47 @@ mod tests {
         let input = vec![0.5; 48_000];
         let output = resample_linear(&input, 48_000, 16_000);
         assert_eq!(output.len(), 16_000);
+    }
+
+    #[test]
+    fn vad_starts_after_sustained_voice_and_ends_after_silence() {
+        let mut vad = VadDetector::default();
+        vad.reset(16_000);
+        for _ in 0..VAD_START_FRAMES - 1 {
+            assert_eq!(vad.observe_frame(0.03), VadFrameEvent::None);
+        }
+        assert_eq!(vad.observe_frame(0.03), VadFrameEvent::SpeechStarted);
+        for _ in 0..VAD_MIN_VOICED_FRAMES {
+            assert_eq!(vad.observe_frame(0.03), VadFrameEvent::None);
+        }
+        for _ in 0..VAD_END_SILENCE_FRAMES - 1 {
+            assert_eq!(vad.observe_frame(0.001), VadFrameEvent::None);
+        }
+        assert_eq!(vad.observe_frame(0.001), VadFrameEvent::SpeechEnded);
+    }
+
+    #[test]
+    fn vad_ignores_steady_background_noise() {
+        let mut vad = VadDetector::default();
+        vad.reset(16_000);
+        for _ in 0..200 {
+            assert_eq!(vad.observe_frame(0.004), VadFrameEvent::None);
+        }
+        assert!(!vad.speech_started);
+    }
+
+    #[test]
+    fn vad_rejects_short_impulse_and_returns_to_waiting() {
+        let mut vad = VadDetector::default();
+        vad.reset(16_000);
+        for _ in 0..VAD_START_FRAMES - 1 {
+            assert_eq!(vad.observe_frame(0.03), VadFrameEvent::None);
+        }
+        assert_eq!(vad.observe_frame(0.03), VadFrameEvent::SpeechStarted);
+        for _ in 0..VAD_END_SILENCE_FRAMES - 1 {
+            assert_eq!(vad.observe_frame(0.001), VadFrameEvent::None);
+        }
+        assert_eq!(vad.observe_frame(0.001), VadFrameEvent::SpeechRejected);
+        assert!(!vad.speech_started);
     }
 }

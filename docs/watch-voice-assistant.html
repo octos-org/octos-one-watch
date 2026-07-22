@@ -18,6 +18,7 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 .voice-orb-core{width:120px;height:120px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e0b076,#c47445 48%,#4f6d4c 86%);box-shadow:0 0 54px 4px rgba(196,116,69,.32),inset 0 0 24px rgba(255,246,234,.18);transition:all .4s ease}
 .voice-orb-ring{position:absolute;border-radius:50%;border:2px solid rgba(196,116,69,.35);opacity:0}
 .voice-orb.is-idle .voice-orb-core{width:90px;height:90px;filter:saturate(.6) brightness(.8);animation:vo-breathe 4s ease-in-out infinite}
+.voice-orb.is-waiting .voice-orb-core{width:100px;height:100px;filter:saturate(.72) brightness(.88);animation:vo-breathe 2.8s ease-in-out infinite}
 .voice-orb.is-listening .voice-orb-core{animation:vo-breathe 1.4s ease-in-out infinite}
 .voice-orb.is-listening .voice-orb-ring{width:120px;height:120px;animation:vo-ripple 1.8s ease-out infinite}
 .voice-orb.is-listening .voice-orb-ring.r2{animation-delay:.9s}
@@ -39,13 +40,13 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 <main class="voice-view">
   <button id="exit" class="exit" type="button" aria-label="退出语音模式">×</button>
   <section class="center">
-    <button id="orb" class="voice-orb is-listening" type="button" aria-label="结束录音">
+    <button id="orb" class="voice-orb is-waiting" type="button" aria-label="立即发送">
       <span class="voice-orb-ring r1"></span>
       <span class="voice-orb-ring r2"></span>
       <span class="voice-orb-core"></span>
     </button>
-    <div id="state" class="state">聆听中…</div>
-    <div id="hint" class="hint">点光球结束录音</div>
+    <div id="state" class="state">请开始说话</div>
+    <div id="hint" class="hint">说完停顿片刻后自动发送</div>
   </section>
   <section class="transcript" aria-live="polite">
     <div id="user" class="user"></div>

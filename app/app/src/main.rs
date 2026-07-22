@@ -34,6 +34,7 @@ enum VoiceUiState {
     #[default]
     Idle,
     RequestingPermission,
+    WaitingForSpeech,
     Recording,
     Thinking,
     Speaking,
@@ -3790,6 +3791,10 @@ pub struct App {
     voice_io: WatchVoiceIo,
     #[rust]
     voice_state: VoiceUiState,
+    /// True while the dedicated voice WebView is foregrounded. Late audio or
+    /// transport events must never restart capture after the user exits it.
+    #[rust]
+    voice_active: bool,
     #[rust]
     voice_status: String,
     #[rust]
@@ -3812,6 +3817,10 @@ pub struct App {
     /// reopening the microphone while more audio is still being synthesized.
     #[rust]
     voice_turn_complete: bool,
+    /// The last queued sentence finished before `turn/completed` arrived.
+    /// Once both conditions are true continuous mode can safely re-arm VAD.
+    #[rust]
+    voice_playback_drained: bool,
     /// `voice/exit` is delayed until the farewell WAV has finished playing.
     #[rust]
     voice_exit_pending: bool,
@@ -5147,7 +5156,9 @@ impl App {
     fn sync_voice_web(&self, cx: &mut Cx) {
         let state = match self.voice_state {
             VoiceUiState::Idle => "idle",
-            VoiceUiState::RequestingPermission | VoiceUiState::Recording => "listening",
+            VoiceUiState::RequestingPermission => "waiting",
+            VoiceUiState::WaitingForSpeech => "waiting",
+            VoiceUiState::Recording => "listening",
             VoiceUiState::Thinking => "thinking",
             VoiceUiState::Speaking => "speaking",
             VoiceUiState::Error => "error",
@@ -5167,7 +5178,9 @@ impl App {
 
     fn handle_voice_primary(&mut self, cx: &mut Cx) {
         match self.voice_state {
-            VoiceUiState::RequestingPermission | VoiceUiState::Recording => {
+            VoiceUiState::RequestingPermission
+            | VoiceUiState::WaitingForSpeech
+            | VoiceUiState::Recording => {
                 self.finish_voice_recording(cx)
             }
             VoiceUiState::Thinking => {
@@ -5195,23 +5208,29 @@ impl App {
                     "点光球开始新的语音回合",
                 );
             }
-            VoiceUiState::Idle | VoiceUiState::Error => self.begin_voice_recording(cx),
+            VoiceUiState::Idle | VoiceUiState::Error => self.begin_voice_recording(cx, false),
         }
     }
 
-    fn begin_voice_recording(&mut self, cx: &mut Cx) {
+    fn begin_voice_recording(&mut self, cx: &mut Cx, preserve_transcript: bool) {
+        if !self.voice_active {
+            return;
+        }
         self.voice_exit_pending = false;
         self.voice_turn_complete = false;
+        self.voice_playback_drained = false;
         self.voice_reply_queue.clear();
-        self.voice_user_text.clear();
-        self.voice_assistant_text.clear();
+        if !preserve_transcript {
+            self.voice_user_text.clear();
+            self.voice_assistant_text.clear();
+        }
         self.voice_io.begin_recording(cx);
         self.set_voice_ui(
             cx,
             VoiceUiState::RequestingPermission,
             "正在准备麦克风…",
-            "结束录音",
-            "局域网 ASR · 云端 TTS",
+            "立即发送",
+            "准备好后直接说话，无需点击光球",
         );
     }
 
@@ -5233,7 +5252,8 @@ impl App {
             .set_text(cx, WATCH_VOICE_ASSISTANT);
         #[cfg(target_os = "android")]
         cx.hide_android_composer();
-        self.begin_voice_recording(cx);
+        self.voice_active = true;
+        self.begin_voice_recording(cx, false);
         cx.redraw_all();
     }
 
@@ -5263,6 +5283,7 @@ impl App {
         );
         self.voice_prompt = Some(prompt_id);
         self.voice_turn_complete = false;
+        self.voice_playback_drained = false;
         self.voice_reply_queue.clear();
         self.voice_input_path = Some(path);
         self.voice_user_text = "语音已发送".to_string();
@@ -5287,6 +5308,7 @@ impl App {
     }
 
     fn close_voice_assistant(&mut self, cx: &mut Cx) {
+        self.voice_active = false;
         if let Some(prompt_id) = self.voice_prompt.take() {
             if let Some(agent) = &mut self.agent {
                 agent.cancel_prompt(cx, prompt_id);
@@ -5297,6 +5319,7 @@ impl App {
         self.remove_voice_input();
         self.voice_reply_queue.clear();
         self.voice_turn_complete = false;
+        self.voice_playback_drained = false;
         self.voice_exit_pending = false;
         self.voice_state = VoiceUiState::Idle;
         self.voice_user_text.clear();
@@ -5310,6 +5333,7 @@ impl App {
     }
 
     fn enqueue_voice_reply(&mut self, cx: &mut Cx, path: &str, mime: &str) {
+        self.voice_playback_drained = false;
         if self.voice_state == VoiceUiState::Speaking {
             self.voice_reply_queue
                 .push_back((path.to_owned(), mime.to_owned()));
@@ -5343,7 +5367,7 @@ impl App {
                 VoiceUiState::Speaking,
                 "Octos 正在回答",
                 "停止播放",
-                "播放结束后可以继续对话",
+                "播放结束后将自动继续聆听",
             ),
             Err(error) => self.set_voice_ui(
                 cx,
@@ -7106,10 +7130,10 @@ impl AppMain for App {
             match self.voice_io.handle_permission_result(cx, result) {
                 Some(crate::app::voice::PermissionOutcome::Granted) => self.set_voice_ui(
                     cx,
-                    VoiceUiState::Recording,
-                    "正在聆听…",
-                    "结束录音",
-                    "说完后点击结束录音",
+                    VoiceUiState::WaitingForSpeech,
+                    "请开始说话",
+                    "立即发送",
+                    "说完停顿片刻后自动发送",
                 ),
                 Some(crate::app::voice::PermissionOutcome::Denied) => self.set_voice_ui(
                     cx,
@@ -7122,27 +7146,59 @@ impl AppMain for App {
             }
         }
         if let Event::Signal = event {
+            let vad = self.voice_io.take_vad_events();
+            let can_finish = self.voice_active
+                && matches!(
+                    self.voice_state,
+                    VoiceUiState::RequestingPermission
+                        | VoiceUiState::WaitingForSpeech
+                        | VoiceUiState::Recording
+                );
+            if vad.speech_ended && can_finish {
+                self.finish_voice_recording(cx);
+            } else if vad.speech_started && can_finish {
+                // Preserve the last answer while waiting, then clear it only
+                // when the next utterance actually begins.
+                self.voice_user_text.clear();
+                self.voice_assistant_text.clear();
+                self.set_voice_ui(
+                    cx,
+                    VoiceUiState::Recording,
+                    "正在聆听…",
+                    "立即发送",
+                    "停顿片刻后将自动发送",
+                );
+            } else if vad.speech_rejected
+                && self.voice_active
+                && self.voice_state == VoiceUiState::Recording
+            {
+                self.set_voice_ui(
+                    cx,
+                    VoiceUiState::WaitingForSpeech,
+                    "请继续说话",
+                    "立即发送",
+                    "刚才的声音太短，尚未提交",
+                );
+            }
+
             if self.voice_io.take_playback_finished(cx) {
                 if self.play_next_voice_reply(cx) {
                     // The next complete sentence is now playing.
-                } else if self.voice_exit_pending {
-                    self.close_voice_assistant(cx);
-                } else if !self.voice_turn_complete {
-                    self.set_voice_ui(
-                        cx,
-                        VoiceUiState::Thinking,
-                        "正在生成余下语音…",
-                        "返回",
-                        "Octos 正在准备下一句回复",
-                    );
                 } else {
-                    self.set_voice_ui(
-                        cx,
-                        VoiceUiState::Idle,
-                        "回答完毕",
-                        "继续说话",
-                        "点击开始下一轮对话",
-                    );
+                    self.voice_playback_drained = true;
+                    if self.voice_exit_pending {
+                        self.close_voice_assistant(cx);
+                    } else if !self.voice_turn_complete {
+                        self.set_voice_ui(
+                            cx,
+                            VoiceUiState::Thinking,
+                            "正在生成余下语音…",
+                            "返回",
+                            "Octos 正在准备下一句回复",
+                        );
+                    } else if self.voice_active {
+                        self.begin_voice_recording(cx, true);
+                    }
                 }
             }
         }
@@ -7374,13 +7430,20 @@ impl AppMain for App {
                             self.remove_voice_input();
                             self.set_fg_prompt(None);
                             if self.voice_state == VoiceUiState::Thinking {
-                                self.set_voice_ui(
-                                    cx,
-                                    VoiceUiState::Thinking,
-                                    "正在生成语音…",
-                                    "返回",
-                                    "Octos 已完成回答，等待云端 TTS",
-                                );
+                                if self.voice_playback_drained
+                                    && self.voice_active
+                                    && !self.voice_exit_pending
+                                {
+                                    self.begin_voice_recording(cx, true);
+                                } else {
+                                    self.set_voice_ui(
+                                        cx,
+                                        VoiceUiState::Thinking,
+                                        "正在生成语音…",
+                                        "返回",
+                                        "Octos 已完成回答，等待云端 TTS",
+                                    );
+                                }
                             }
                             continue;
                         }
