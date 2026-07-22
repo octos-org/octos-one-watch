@@ -1,0 +1,41 @@
+<!-- name: watch-webview-poc -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:#07090d;color:#f5f7fa;font-family:system-ui,-apple-system,sans-serif}
+body{display:flex;align-items:center;justify-content:center;padding:14px 14px 68px}
+.card{width:100%;max-width:344px;padding:18px;border:1px solid #283141;border-radius:20px;background:linear-gradient(145deg,#151b25,#0c1017);box-shadow:0 12px 32px #0008;text-align:center}
+.badge{display:inline-block;padding:5px 10px;border-radius:999px;background:#153922;color:#73f29a;font-size:12px;font-weight:700}
+h1{margin:12px 0 4px;font-size:22px}p{margin:0 0 14px;color:#aeb8c8;font-size:13px}
+.count{font-size:58px;font-weight:750;line-height:1.1;margin:8px 0 12px;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:10px}.row button{flex:1;height:48px;border:0;border-radius:14px;background:#2d6cff;color:#fff;font-size:24px;font-weight:700}.row button:last-child{background:#2a303b}
+#detail{margin-top:12px;color:#7f8b9d;font-size:11px}
+</style>
+</head>
+<body>
+<main class="card">
+  <span class="badge">WEBVIEW READY</span>
+  <h1>Octos Watch</h1>
+  <p>HTML、触摸和 JavaScript 真机测试</p>
+  <div id="count" class="count">0</div>
+  <div class="row">
+    <button id="plus" aria-label="增加">＋</button>
+    <button id="reset" aria-label="重置">↺</button>
+  </div>
+  <div id="detail"></div>
+</main>
+<script>
+(function(){
+  var n=0,count=document.getElementById('count');
+  function draw(){count.textContent=String(n)}
+  document.getElementById('plus').onclick=function(){n+=1;draw()};
+  document.getElementById('reset').onclick=function(){n=0;draw()};
+  document.getElementById('detail').textContent='WebView '+navigator.userAgent.replace(/^.*Chrome\//,'Chrome/').split(' ')[0];
+}());
+</script>
+</body>
+</html>

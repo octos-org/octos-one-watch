@@ -1,0 +1,16 @@
+diff --git a/widgets/src/web_card.rs b/widgets/src/web_card.rs
+--- a/widgets/src/web_card.rs
++++ b/widgets/src/web_card.rs
+@@ -330,6 +330,12 @@ impl WebCard {
+                 }
+                 Err(e) => self.reject(cx, call_id, &format!("bad notify args: {:?}", e)),
+             },
++            // The app shell observes the same invoke action and owns the
++            // actual navigation. WebCard only acknowledges this intentional
++            // card-to-shell command so the JavaScript promise can settle.
++            "ui.home" => {
++                self.resolve_raw(cx, call_id, "{\"ok\":true}");
++            }
+             // Default-deny: only registered tools are callable.
+             other => self.reject(cx, call_id, &format!("unknown tool: {}", other)),
+         }
