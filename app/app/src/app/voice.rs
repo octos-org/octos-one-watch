@@ -19,12 +19,12 @@ const TARGET_SAMPLE_RATE: u32 = 16_000;
 const MAX_RECORDING_SECS: usize = 30;
 const VAD_FRAME_MS: usize = 20;
 const VAD_PRE_ROLL_MS: usize = 240;
-const VAD_START_FRAMES: usize = 4;
+const VAD_START_FRAMES: usize = 3;
 const VAD_MIN_VOICED_FRAMES: usize = 10;
 const VAD_END_SILENCE_FRAMES: usize = 40;
-const VAD_INITIAL_NOISE_FLOOR: f32 = 0.003;
-const VAD_MIN_START_RMS: f32 = 0.012;
-const VAD_MIN_CONTINUE_RMS: f32 = 0.008;
+const VAD_INITIAL_NOISE_FLOOR: f32 = 0.001;
+const VAD_MIN_START_RMS: f32 = 0.004;
+const VAD_MIN_CONTINUE_RMS: f32 = 0.0025;
 const VAD_EVENT_SPEECH_STARTED: u8 = 1 << 0;
 const VAD_EVENT_SPEECH_ENDED: u8 = 1 << 1;
 const VAD_EVENT_SPEECH_REJECTED: u8 = 1 << 2;
@@ -660,9 +660,19 @@ mod tests {
         let mut vad = VadDetector::default();
         vad.reset(16_000);
         for _ in 0..200 {
-            assert_eq!(vad.observe_frame(0.004), VadFrameEvent::None);
+            assert_eq!(vad.observe_frame(0.0015), VadFrameEvent::None);
         }
         assert!(!vad.speech_started);
+    }
+
+    #[test]
+    fn vad_detects_quiet_speech_immediately_after_reset() {
+        let mut vad = VadDetector::default();
+        vad.reset(16_000);
+        for _ in 0..VAD_START_FRAMES - 1 {
+            assert_eq!(vad.observe_frame(0.006), VadFrameEvent::None);
+        }
+        assert_eq!(vad.observe_frame(0.006), VadFrameEvent::SpeechStarted);
     }
 
     #[test]
