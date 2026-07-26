@@ -2654,8 +2654,24 @@ script_mod! {
                                 width: Fill
                                 height: Fit
                                 visible: false
+                                flow: Down
                                 align: Align{x: 0.5}
                                 octo := OctoThinking {}
+                                // Elapsed-wait escalation, driven by
+                                // `generating_timer` (see `App` field docs):
+                                // silent under 3s, "Generating…" 3-9s, a
+                                // "taking longer than usual" notice past 10s.
+                                // Nests inside `octo_row` so it hides for free
+                                // whenever the octopus does.
+                                generating_label := Label {
+                                    width: Fit
+                                    height: Fit
+                                    text: ""
+                                    visible: false
+                                    margin: Inset{top: 4}
+                                    draw_text.text_style.font_size: 10
+                                    draw_text.color: #xE2D2B9AA
+                                }
                             }
 
                             // Collapsed state: a slim translucent pill that
@@ -3728,6 +3744,17 @@ pub struct App {
     /// Set by delta handlers; cleared when the tick repaints.
     #[rust]
     stream_dirty: bool,
+    /// 1 Hz clock for the `generating_label` wait-escalation text, running
+    /// only while `CHAT_DATA.is_streaming`. Started/stopped from
+    /// `update_empty_state_visibility` (the single place that already
+    /// reacts to every `is_streaming` transition), not from each of the
+    /// submit/cancel/complete/error call sites individually.
+    #[rust]
+    generating_timer: Timer,
+    /// Whole seconds elapsed since `generating_timer` started this turn.
+    /// Reset to 0 whenever the timer (re)starts.
+    #[rust]
+    generating_secs: u32,
     /// Layer 3 — a background app's badge/title changed during this event
     /// drain; the switcher strip is re-synced once after the drain (rather than
     /// per streaming delta). Cleared by the flush.
@@ -4830,7 +4857,7 @@ impl App {
         );
     }
 
-    fn update_empty_state_visibility(&self, cx: &mut Cx) {
+    fn update_empty_state_visibility(&mut self, cx: &mut Cx) {
         let (show_empty_state, is_streaming) = {
             let data = CHAT_DATA.read().unwrap();
             (
@@ -4845,6 +4872,45 @@ impl App {
         self.ui
             .view(cx, ids!(octo_row))
             .set_visible(cx, is_streaming);
+        // Elapsed-wait escalation clock: (re)start on every transition into
+        // streaming, park on every transition out of it. This is the single
+        // place all `is_streaming` writers already call through, including
+        // the auto-repair restart (main.rs card_repair path), which flips
+        // `is_streaming` false→true again before this runs — so the timer
+        // and label always reflect the CURRENT turn, not a stale one.
+        if is_streaming {
+            if self.generating_timer.is_empty() {
+                self.generating_secs = 0;
+                self.generating_timer = cx.start_interval(1.0);
+                self.update_generating_label(cx);
+            }
+        } else if !self.generating_timer.is_empty() {
+            cx.stop_timer(self.generating_timer);
+            self.generating_timer = Timer::empty();
+            self.generating_secs = 0;
+            self.ui.label(cx, ids!(generating_label)).set_visible(cx, false);
+        }
+    }
+
+    /// Wait-escalation text for `generating_label`, keyed off
+    /// `generating_secs`: silent under 3s (a normal card takes at least
+    /// that long, so showing anything sooner is just noise), "Generating…"
+    /// from 3-9s, then an explicit "taking longer than usual" notice past
+    /// 10s so a stalled turn doesn't just look identical to a fast one for
+    /// the whole time the user is staring at the looping octopus.
+    fn update_generating_label(&self, cx: &mut Cx) {
+        let label = self.ui.label(cx, ids!(generating_label));
+        match self.generating_secs {
+            0..=2 => label.set_visible(cx, false),
+            3..=9 => {
+                label.set_text(cx, "Generating…");
+                label.set_visible(cx, true);
+            }
+            _ => {
+                label.set_text(cx, "Still working — taking longer than usual");
+                label.set_visible(cx, true);
+            }
+        }
     }
 
     fn send_message(&mut self, cx: &mut Cx) {
@@ -6798,6 +6864,19 @@ impl AppMain for App {
                 // Turn finished and nothing pending — park the interval.
                 cx.stop_timer(self.stream_tick);
                 self.stream_tick = Timer::empty();
+            }
+        }
+        // Wait-escalation clock — see `generating_timer` field docs. Started
+        // and parked from `update_empty_state_visibility`; this arm only
+        // advances the count and redraws while it's running.
+        if self.generating_timer.is_event(event).is_some() {
+            if !CHAT_DATA.read().map(|d| d.is_streaming).unwrap_or(false) {
+                cx.stop_timer(self.generating_timer);
+                self.generating_timer = Timer::empty();
+            } else {
+                self.generating_secs += 1;
+                self.update_generating_label(cx);
+                cx.redraw_all();
             }
         }
         // Post-card repaint burst: draw for ~5.6s so a remote background image
