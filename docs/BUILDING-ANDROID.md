@@ -155,6 +155,31 @@ This produces `octos/target/armv7-linux-androideabi/release/octos`. The compiler
 wrapper uses Android API 24, below the verified watch's API 30. For another ABI,
 change both the Rust target and the compiler/env-variable prefixes consistently.
 
+**Windows, no WSL (Git Bash):** the toolchain directory and host-tag differ
+(`android_33_windows_x64`, `windows-x86_64`), and — this is the one that
+actually breaks the build — the per-API clang wrapper `cargo makepad
+android install-toolchain` downloads for Linux is a shell script, but on
+Windows it's a `.cmd` batch file; the bare extensionless name from the
+block above is a real file there too, just not a Win32 executable, so
+`cargo build` fails with `os error 193` (`%1 is not a valid Win32
+application`) trying to exec it as the linker. Use the `.cmd`/`.exe`
+variants instead:
+
+```bash
+export NDK_TOOLCHAIN="$PWD/makepad/tools/cargo_makepad/android_33_windows_x64/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64"
+export ANDROID_CC="$NDK_TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang.cmd"
+export ANDROID_CXX="$NDK_TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++.cmd"
+export ANDROID_AR="$NDK_TOOLCHAIN/bin/llvm-ar.exe"
+export ANDROID_RANLIB="$NDK_TOOLCHAIN/bin/llvm-ranlib.exe"
+```
+
+(`test -x` on the `.cmd` may report false depending on Git Bash's ACL
+mapping — check with `test -f` instead if the guard rejects a real file.)
+Rust's `std::process::Command` runs `.cmd` targets through `cmd.exe /c`
+automatically, so no other change is needed; the rest of the block above
+(the `CARGO_TARGET_*`/`CC_*`/`AR_*` exports and the `cargo build` call)
+is unchanged.
+
 ## 4. Build the APK
 
 ```bash
@@ -235,7 +260,11 @@ cp -R a2app "$PROVISION/.octos/profiles/_main/data/memory/app-cards"
 REMOTE=/data/local/tmp/octos-watch-provision
 $ADB shell rm -rf "$REMOTE"
 $ADB push "$PROVISION/." "$REMOTE"
-$ADB shell chmod -R a+rX "$REMOTE"
+# `o+rX` (not `a+rX`): the app reads this as its own UID, which on a
+# non-rooted device only ever matches the "other" class, never the pushing
+# shell's user/group — granting those two nothing narrows exposure of the
+# staged API key for free.
+$ADB shell chmod -R o+rX "$REMOTE"
 
 # If you also put a complete _main.json in the tree, pass both extras in this
 # SAME cold start so provisioning finishes before session/open.
@@ -243,17 +272,74 @@ $ADB shell am start -W -S -n dev.makepad.octos_watch/.MakepadApp \
   --es makepad.PROVISION_DIR "$REMOTE" \
   --es makepad.APP_CONFIG 'http://127.0.0.1:50080|_main|local-stdio-bypass'
 
-# The staging directory may contain an API key. Remove it after a successful
-# cold start; the copied app-private data persists.
+# ⚠️ The staging directory may contain an API key in plaintext. Delete it
+# immediately — the copied app-private data already persists inside the
+# app's sandbox, so this is safe even if the `am start` above reported an
+# error. Re-run this line by hand if you interrupt the block before it gets
+# here.
 $ADB shell rm -rf "$REMOTE"
 ```
 
-Place a complete profile at
-`$PROVISION/.octos/profiles/_main.json` before `adb push` when provisioning an
-LLM non-interactively. Keep real keys out of shell history and this repository.
-On Android 11, `/data/local/tmp` plus `chmod -R a+rX` is more reliable for this
-one-time import than `/sdcard/Android/data/...`, which may be blocked by scoped
-storage.
+Place a complete profile at `$PROVISION/.octos/profiles/_main.json` before
+`adb push` when provisioning an LLM non-interactively:
+
+```jsonc
+{
+  "id": "_main",
+  "name": "Main",
+  "enabled": true,
+  "config": {
+    "llm": {
+      "primary": { "family_id": "zai", "model_id": "glm-5.2" },
+      "fallbacks": []
+    },
+    "env_vars": { "ZAI_API_KEY": "sk-…" }
+  },
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-01-01T00:00:00Z"
+}
+```
+
+`enabled` has no schema default other than `false` — a hand-written profile
+that omits it silently deploys **disabled**, which used to surface as the
+misleading "add an API key in the dashboard" error even when the key above
+is correct (see the `profile_runtime_unavailable_message` cause split in
+`octos`). `id`, `name`, `config`, `created_at`, and `updated_at` are all
+required by the deserializer (no serde default) — a bare `{"config": {...}}`
+file fails to parse as a profile at all. Keep real keys out of shell history
+and this repository. On Android 11, `/data/local/tmp` plus `chmod -R o+rX` is
+more reliable for this one-time import than `/sdcard/Android/data/...`,
+which may be blocked by scoped storage.
+
+### Windows (Git Bash)
+
+Git Bash (MSYS2) rewrites bare POSIX-looking arguments before they reach
+`adb`, which mangles the remote path above into a Windows path `adb` then
+fails against; a recursive directory `adb push` of the provision tree is
+also separately flaky over a real USB link. Push a single tar archive
+instead:
+
+```bash
+export MSYS2_ARG_CONV_EXCL='*'   # once per shell, before any adb call below
+
+( cd "$PROVISION" && tar -cf provision.tar .octos )
+# adb still wants the LOCAL path in Windows form even with the env var
+# above set — only the REMOTE argument should look like a bare POSIX path.
+WIN_PROVISION="$(cd "$PROVISION" && pwd -W)"
+
+$ADB shell rm -rf "$REMOTE"
+$ADB push "$WIN_PROVISION/provision.tar" /data/local/tmp/provision.tar
+$ADB shell "mkdir -p $REMOTE && tar -xf /data/local/tmp/provision.tar -C $REMOTE 2>/dev/null; \
+  chmod -R o+rX $REMOTE && rm -f /data/local/tmp/provision.tar && echo EXTRACT_OK"
+```
+
+Then run the same `am start` + final `rm -rf "$REMOTE"` cleanup shown above
+unchanged — only the push step differs. The on-device extract runs as a
+non-root shell user and prints a harmless `chown: Operation not permitted`
+per entry; the `2>/dev/null` above swallows it, and `EXTRACT_OK` confirms the
+files actually landed. This combination (env var + tar + `pwd -W`) was
+confirmed end-to-end on a physical device; a partial fix (only the env var,
+or only tarring) still leaves one of the two failure modes.
 
 **The injection token budget is handled by the app.** octos's built-in
 `memory.max_inject_tokens` default is 2500 — far below the ~23k-token 3-app
@@ -274,7 +360,7 @@ create `a2app/apps/<id>/app.md` (+ exemplars) and re-push — no code edit.
 The per-profile LLM provider + key live in `_main.json` (`config.llm` +
 `config.env_vars`) — provision that on the device; **never commit keys**.
 
-## WSL / networking notes
+## Windows / WSL notes
 
 - Use the Windows `adb.exe` (e.g. `/mnt/c/Users/<you>/…/platform-tools/adb.exe`)
   to talk to USB phones; the SDK's Linux `adb` can't see them.
@@ -283,3 +369,16 @@ The per-profile LLM provider + key live in `_main.json` (`config.llm` +
   `adb reverse tcp:8899 tcp:<host-proxy-port>`, and pass
   `--es makepad.OCTOS_PROXY 'http://127.0.0.1:8899'`. This routes both the LLM
   (`api.z.ai` / provider) and the card data fetches (open-meteo, Yahoo, HN).
+- Git Bash / MSYS2 quirks (path mangling, the tar-based provision push) are
+  covered inline where they bite: see [Windows (Git
+  Bash)](#windows-git-bash) above.
+- `cargo makepad android build` runs `javac` on Java sources that embed
+  literal non-ASCII UI strings (composer hint, glyph buttons). `javac`
+  defaults to the host JVM's platform charset — on Windows that's the ANSI
+  codepage (e.g. GBK on a zh-CN system), never UTF-8 — which used to bake
+  mojibake into the compiled `.class` files on Windows only. The build tool
+  now always passes `-encoding UTF-8` to `javac`
+  (`tools/cargo_makepad/src/android/compile.rs`), so this should no longer
+  need a manual workaround; if you're on an older `cargo-makepad` build
+  without that fix, set `JDK_JAVAC_OPTIONS="-encoding UTF-8"` before
+  building.
