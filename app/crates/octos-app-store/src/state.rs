@@ -495,7 +495,10 @@ fn apply_protocol(state: &mut AppState, cursor: Option<UiCursor>, n: UiNotificat
         // Stage-1 projection is capability-gated. This v1 client does not
         // request it, so it remains a transport-level no-op if received from
         // a newer dependency/server combination.
-        UiNotification::EnvelopeV2(_) => {}
+        // LOCAL BUILD FIX (2026-08-03): pinned octos-core (594c2052) predates
+        // the EnvelopeV2 variant (only existed upstream Jul 18–19), so this
+        // arm doesn't compile against the pin. It was a no-op ignore arm.
+        // UiNotification::EnvelopeV2(_) => {}
         // 2026-07 protocol catch-up: model-authored plan checklists have no
         // surface in octos-app (the AMA routes to app cards, not plans).
         UiNotification::PlanUpdated(_) => {}

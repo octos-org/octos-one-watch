@@ -541,6 +541,24 @@ fn a2app_cards_dir() -> Option<std::path::PathBuf> {
     Some(std::path::Path::new(&home).join("a2app_cards"))
 }
 
+/// The embedded kernel's HOME on Android: `<app files dir>/octos-home`.
+/// Derived from the HOME env var (set at startup from `cx.get_data_dir()`),
+/// NOT a hard-coded package path: when a sibling octos app (e.g.
+/// `dev.makepad.octos_app`) is installed on the same device, ITS files dir
+/// exists but belongs to another app — per-app SELinux isolation makes it
+/// inaccessible, so `create_dir_all` fails and `Command::spawn`'s pre-exec
+/// `chdir(cwd)` dies with EACCES ("Permission denied os error 13"). The
+/// literal below is only a last-ditch fallback for a missing/empty HOME.
+#[cfg(target_os = "android")]
+fn kernel_home() -> std::path::PathBuf {
+    if let Ok(h) = std::env::var("HOME") {
+        if !h.is_empty() {
+            return std::path::PathBuf::from(h).join("octos-home");
+        }
+    }
+    std::path::PathBuf::from("/data/user/0/dev.makepad.octos_watch/files/octos-home")
+}
+
 /// Extract the `// name: <slug>` directive the model puts on the FIRST line of a
 /// card body. Sanitized to a stable kebab slug so it names a file safely.
 fn extract_card_name(body: &str) -> Option<String> {
@@ -4344,7 +4362,7 @@ impl App {
     /// decision in `handle_startup`).
     #[cfg(target_os = "android")]
     fn has_embedded_kernel() -> bool {
-        let home = std::path::PathBuf::from("/data/user/0/dev.makepad.octos_watch/files/octos-home");
+        let home = kernel_home();
         Self::android_native_lib_dir()
             .map(|lib_dir| Self::find_embedded_kernel(&lib_dir, &home).is_some())
             .unwrap_or(false)
@@ -4363,7 +4381,7 @@ impl App {
     #[cfg(target_os = "android")]
     fn stdio_spawn() -> Option<StdioSpawn> {
         let lib_dir = Self::android_native_lib_dir()?;
-        let home = std::path::PathBuf::from("/data/user/0/dev.makepad.octos_watch/files/octos-home");
+        let home = kernel_home();
         let Some(program) = Self::find_embedded_kernel(&lib_dir, &home) else {
             log::warn!(
                 "stdio: bundled octos not found under {}; using WebSocket transport",
@@ -4592,11 +4610,12 @@ impl App {
     fn app_cards_memory_dir() -> Option<String> {
         #[cfg(target_os = "android")]
         {
-            let p = "/data/user/0/dev.makepad.octos_watch/files/octos-home/.octos/profiles/_main/data/memory/app-cards/apps";
+            let p = kernel_home()
+                .join(".octos/profiles/_main/data/memory/app-cards/apps");
             // The dir must EXIST for the kernel's cwd validation to accept the
             // hint (validate_session_workspace_allowed canonicalizes it).
-            let _ = std::fs::create_dir_all(p);
-            Some(p.to_string())
+            let _ = std::fs::create_dir_all(&p);
+            Some(p.to_string_lossy().into_owned())
         }
         #[cfg(not(target_os = "android"))]
         {
@@ -6653,9 +6672,7 @@ impl MatchEvent for App {
         // memory tree onto a device that can't be written via su/run-as.
         #[cfg(target_os = "android")]
         if let Ok(src) = std::env::var("MAKEPAD_PROVISION_DIR") {
-            let home = std::path::PathBuf::from(
-                "/data/user/0/dev.makepad.octos_watch/files/octos-home",
-            );
+            let home = kernel_home();
             match deploy_provision(std::path::Path::new(&src), &home) {
                 Ok(n) => log::info!("provision: deployed {n} files from {src}"),
                 Err(e) => log::warn!("provision: deploy from {src} failed: {e}"),
