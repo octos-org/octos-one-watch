@@ -576,10 +576,11 @@ impl OctosUiAgent {
             // 2026-07 protocol catch-up: no plan pane / voice surface here.
             | UiNotification::PlanUpdated(_)
             | UiNotification::VoiceAudioChunk(_)
-            | UiNotification::Envelope(_)
+            | UiNotification::Envelope(_) => Vec::new(),
             // V2 is capability-gated; this v1 client does not request it.
-            // Keep the explicit arm so dependency-head updates still compile.
-            | UiNotification::EnvelopeV2(_) => Vec::new(),
+            // LOCAL BUILD FIX (2026-08-03): pinned octos-core (594c2052) has no
+            // EnvelopeV2 variant (upstream only Jul 18–19) — arm removed; the
+            // combined arm above already returns Vec::new() for these no-ops.
         }
     }
 }
