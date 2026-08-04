@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    # macOS, not ubuntu: `cargo check` runs makepad's build scripts, and the
+    # host system-dependency set is only verified on macOS (what the dev
+    # machines run). Ubuntu would need an untested apt package list for
+    # makepad's Linux backend.
+    runs-on: macos-14
+    steps:
+      # Sibling layout is load-bearing: this repo's aichat/makepad/octos are
+      # committed symlinks into ../octos-one, so both repos must be checked
+      # out side by side.
+      - uses: actions/checkout@v6
+        with:
+          path: octos-one-watch
+
+      - uses: actions/checkout@v6
+        with:
+          repository: octos-org/octos-one
+          path: octos-one
+
+      # This app builds against the OLD API generation of octos-one's
+      # submodules (aichat AndroidComposer*, octos-core without
+      # UiNotification::EnvelopeV2) — NOT the SHAs octos-one records for its
+      # own app. The two generations cannot coexist in one checkout, which is
+      # why the pins live here (previously they existed only in local build
+      # notes). See octos-org/octos-one#17 for the JNI lock-step.
+      - name: Pin octos-one submodules to the generation this app builds against
+        run: |
+          set -euo pipefail
+          cd octos-one
+          git submodule update --init --depth 1 aichat makepad octos
+          git -C aichat fetch --depth 1 origin 39ee82dc7892236e1c4023b120106b7f6aaa6ee0
+          git -C aichat checkout 39ee82dc7892236e1c4023b120106b7f6aaa6ee0
+          git -C makepad fetch --depth 1 origin 35dba9ba1600d02b6768ccd3a0897ae02bdac4fc
+          git -C makepad checkout 35dba9ba1600d02b6768ccd3a0897ae02bdac4fc
+          git -C octos fetch --depth 1 origin 594c2052debbcfab04e607f6d7e21aef5177d801
+          git -C octos checkout 594c2052debbcfab04e607f6d7e21aef5177d801
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: octos-one-watch-app
+
+      - name: Check app workspace
+        working-directory: octos-one-watch/app
+        run: cargo check --workspace
