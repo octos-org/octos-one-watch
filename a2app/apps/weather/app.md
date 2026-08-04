@@ -45,6 +45,9 @@ reproduce THIS frame too.
 - The inner `flow: Down` column uses `padding: Inset{left: 12 top: 12 right: 12 bottom: 56}`.
 - ONE column; nothing side-by-side except the two-tile stat rows.
 - Text: `text/primary` `#ffffff`, secondary `#ffffff99`, dim `#ffffff73`.
+- Narrow-watch budget: reference hardware is 372×430 px @ 320 dpi = **186×215 dp
+  logical**. After column+row padding a row has ~140 dp — keep each row's
+  FIXED-width sum well under that and give text `width: Fill` so it flexes.
 
 ## Structure, top to bottom
 
@@ -66,9 +69,11 @@ reproduce THIS frame too.
 
 **(2) 3-DAY FORECAST** — directly under the current block. A frosted RoundedView
 (`#ffffff14`, border_radius 14) with ONE SolidView row per day, EACH ROW a FIXED
-`height: 36`: day name width 64 (font 13), a weather EMOJI width 28
-(☀️ ⛅ ☁️ 🌧️ ⛈️ ❄️), a Filler, then lo° dim (`#ffffff73`) and hi° white width 40,
-all font 13. THREE rows ONLY: Today, tomorrow, day after. The lo°/hi° of row N
+`height: 36`: day name `width: Fill` (font 13 — Fill absorbs the slack so the
+row fits ANY watch width; never give the day name a fixed dp width), a weather
+EMOJI width 28 (☀️ ⛅ ☁️ 🌧️ ⛈️ ❄️), a Filler, then lo° dim (`#ffffff73`)
+width 36 and hi° white width 40, all font 13. THREE rows ONLY: Today, tomorrow,
+day after. The lo°/hi° of row N
 are LIVE: `sys.weather(LAT, LON, "daily.temperature_2m_min.N")` and
 `sys.weather(LAT, LON, "daily.temperature_2m_max.N")` for N = 0 (Today) … 2.
 
@@ -76,12 +81,14 @@ are LIVE: `sys.weather(LAT, LON, "daily.temperature_2m_min.N")` and
 
 (3) The detail grid — below the forecast. TWO `flow: Right` rows, each holding
 TWO equal frosted tiles (`width: Fill`, `#ffffff14`, border_radius 14). Every
-tile stacks an UPPERCASE caption (font 10, `#ffffff73`), a big value (font 17),
+tile stacks an UPPERCASE caption (font 10, `#ffffff73`, `width: Fill` so a long
+caption wraps instead of clipping at the tile edge), a big value (font 17),
 and a sub-line (font 11, `#ffffff99`). The FOUR tiles in order — every value
 LIVE (sys.airquality / sys.weather); only captions and sub-lines are yours:
 - AIR QUALITY — value = `sys.airquality(LAT, LON, "current.us_aqi")`; set its
-  `draw_text.color` by category — Good #32d74b, Moderate #ffd60a,
-  Unhealthy #ff9f0a, Very Unhealthy #ff453a — and put the category word in the sub.
+  `draw_text.color` by the US-AQI band — Good ≤50 #32d74b, Moderate 51–100
+  #ffd60a, Unhealthy 101–150 #ff9f0a, Very Unhealthy 151–200 #ff453a — and put
+  the category word in the sub.
 - UV INDEX — `sys.weather(LAT, LON, "daily.uv_index_max.0")`; sub Low/Moderate/
   High/Very High.
 - HUMIDITY — `sys.weather(LAT, LON, "current.relative_humidity_2m") + "%"`; sub free.
