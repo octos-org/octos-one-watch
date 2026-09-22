@@ -28,9 +28,15 @@ jobs:
         with:
           path: octos-one-watch
 
+      # octos-org/octos-one moved out of the org (now redirects to
+      # OctoSense-org/Octoscript-AppCard), and the redirect's tip no longer
+      # carries the aichat/makepad submodules pinned below. Pin the checkout
+      # to the last octos-org-era commit, which still records all three
+      # submodules against octos-org remotes.
       - uses: actions/checkout@v6
         with:
           repository: octos-org/octos-one
+          ref: dc8a8ca20b53ddfb820368a3ac8179707127ac05
           path: octos-one
 
       # This app builds against the OLD API generation of octos-one's
