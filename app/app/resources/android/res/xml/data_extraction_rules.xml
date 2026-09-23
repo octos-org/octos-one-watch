@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Data extraction rules (API 31+). Same exclusions as backup_rules.xml,
+     applied to both cloud backup (which also governs adb backup) and
+     device-to-device transfer: the bearer token, LLM/channel credentials,
+     and live session tokens stay on the device they were provisioned on. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Server bearer tokens (<host>::<profile>.token) and server.json. -->
+        <exclude domain="file" path=".config/octos-app/" />
+        <!-- Profile configs (LLM keys, sub-account channel tokens) and
+             per-profile data/ trees (agent memory, transcripts). -->
+        <exclude domain="file" path="octos-home/.octos/profiles/" />
+        <!-- Live dashboard session tokens and the plaintext SMTP password,
+             both written by `octos serve` at the .octos root. -->
+        <exclude domain="file" path="octos-home/.octos/auth_sessions.json" />
+        <exclude domain="file" path="octos-home/.octos/smtp_secret.json" />
+        <!-- OAuth token store (XDG + legacy); no on-device writer today,
+             excluded against future kernel features. -->
+        <exclude domain="file" path="octos-home/.config/octos/auth.json" />
+        <exclude domain="file" path="octos-home/.octos/auth.json" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path=".config/octos-app/" />
+        <exclude domain="file" path="octos-home/.octos/profiles/" />
+        <exclude domain="file" path="octos-home/.octos/auth_sessions.json" />
+        <exclude domain="file" path="octos-home/.octos/smtp_secret.json" />
+        <exclude domain="file" path="octos-home/.config/octos/auth.json" />
+        <exclude domain="file" path="octos-home/.octos/auth.json" />
+    </device-transfer>
+</data-extraction-rules>

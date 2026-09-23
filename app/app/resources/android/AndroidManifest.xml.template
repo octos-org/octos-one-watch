@@ -9,6 +9,8 @@
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/MakepadAppTheme"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true"
         android:debuggable="{debuggable}"
         android:hardwareAccelerated="true"
