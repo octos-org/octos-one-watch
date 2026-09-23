@@ -552,4 +552,50 @@ mod tests {
         assert_eq!(config.llm_model.as_deref(), Some("glm-5.2"));
         assert_eq!(config.llm_key, "sk-test");
     }
+
+    /// The Android backup-exclusion rules (`resources/android/res/xml/*.xml`)
+    /// must keep covering every on-disk credential path this app (or the
+    /// embedded kernel) can write. The keychain dir is coupled to
+    /// `keychain::ANDROID_TOKEN_DIR` and the profiles dir to
+    /// `octos_profile_config_path`; the kernel-side paths are string literals
+    /// pinned by this test — if one moves, move the XML exclude in the same
+    /// commit.
+    #[test]
+    fn android_backup_rules_cover_credential_paths() {
+        let xml_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/android/res/xml/");
+        let legacy = std::fs::read_to_string(format!("{xml_dir}backup_rules.xml"))
+            .expect("backup_rules.xml must exist (AndroidManifest fullBackupContent)");
+        let modern = std::fs::read_to_string(format!("{xml_dir}data_extraction_rules.xml"))
+            .expect("data_extraction_rules.xml must exist (AndroidManifest dataExtractionRules)");
+        let paths = [
+            // Bearer tokens + server.json (octos-app-store `keychain.rs`).
+            format!("{}/", octos_app_store::keychain::ANDROID_TOKEN_DIR),
+            // Profile credentials + per-profile data
+            // (`octos_profile_config_path` below; account-manager sub-account
+            // profiles carry channel tokens in the same directory).
+            "octos-home/.octos/profiles/".to_string(),
+            // Live dashboard session tokens and plaintext SMTP password
+            // (`octos serve`).
+            "octos-home/.octos/auth_sessions.json".to_string(),
+            "octos-home/.octos/smtp_secret.json".to_string(),
+            // OAuth token store (XDG + legacy); no on-device writer today.
+            "octos-home/.config/octos/auth.json".to_string(),
+            "octos-home/.octos/auth.json".to_string(),
+        ];
+        for path in &paths {
+            let exclude = format!("path=\"{path}\"");
+            assert!(legacy.contains(&exclude), "backup_rules.xml lost exclude {exclude}");
+            assert!(
+                modern.contains(&exclude),
+                "data_extraction_rules.xml lost exclude {exclude}"
+            );
+        }
+        // The profile-config constructor must stay inside the excluded dir.
+        let profile = octos_profile_config_path().unwrap();
+        assert!(
+            profile.to_string_lossy().contains("octos-home/.octos/profiles/"),
+            "profile config path escaped the backup exclusion: {}",
+            profile.display()
+        );
+    }
 }

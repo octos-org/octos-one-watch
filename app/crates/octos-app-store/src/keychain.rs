@@ -66,6 +66,14 @@ fn entry(host: &ServerHost, profile_id: &ProfileId) -> Result<keyring::Entry, Ke
 // HOME points at the app-private files dir (`getFilesDir()`, set at startup
 // in `main.rs::handle_startup`), which Android isolates per-app.
 // ---------------------------------------------------------------------------
+
+/// Directory (relative to `$HOME`) holding the plaintext bearer files on
+/// Android. Excluded from Android backups via
+/// `resources/android/res/xml/*.xml` — keep the two in sync; `octos-app`'s
+/// `android_backup_rules_cover_credential_paths` test asserts the match.
+/// Not cfg-gated so host-side tests can reference it.
+pub const ANDROID_TOKEN_DIR: &str = ".config/octos-app";
+
 #[cfg(target_os = "android")]
 fn token_file(
     host: &ServerHost,
@@ -75,8 +83,7 @@ fn token_file(
         KeychainError::Backend("HOME unset (android startup bootstrap missing)".into())
     })?;
     let mut p = std::path::PathBuf::from(home);
-    p.push(".config");
-    p.push("octos-app");
+    p.push(ANDROID_TOKEN_DIR);
     std::fs::create_dir_all(&p).map_err(|e| KeychainError::Backend(e.to_string()))?;
     let safe: String = service_name(host, profile_id)
         .chars()

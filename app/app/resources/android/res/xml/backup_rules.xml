@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup rules (API 26-30, superseded by data_extraction_rules.xml on
+     API 31+). HOME is the app-private files dir (getFilesDir()), so all
+     excludes use domain="file"; see octos-app-store/src/keychain.rs and
+     app/login.rs for the exact write sites. Credentials must never leave the
+     device in a cloud/adb backup — re-provisioning after a restore is the
+     intended flow. Directory excludes are recursive and carry a trailing
+     slash deliberately (exact-dir match, no sibling-prefix over-match);
+     <exclude> paths do not support wildcards. -->
+<full-backup-content>
+    <!-- Server bearer tokens (<host>::<profile>.token) and server.json. -->
+    <exclude domain="file" path=".config/octos-app/" />
+    <!-- Profile configs: LLM provider keys and sub-account channel tokens
+         (config.env_vars.*) in profiles/<id>.json. Also covers each
+         profile's data/ tree (agent memory, session transcripts) — content
+         that does not belong in a cloud backup either. -->
+    <exclude domain="file" path="octos-home/.octos/profiles/" />
+    <!-- Live dashboard session tokens and the plaintext SMTP password,
+         both written by `octos serve` at the .octos root. -->
+    <exclude domain="file" path="octos-home/.octos/auth_sessions.json" />
+    <exclude domain="file" path="octos-home/.octos/smtp_secret.json" />
+    <!-- OAuth token store (XDG + legacy locations). Nothing writes these
+         on-device today; excluded so a future kernel feature that persists
+         auth.json does not silently re-open the leak. -->
+    <exclude domain="file" path="octos-home/.config/octos/auth.json" />
+    <exclude domain="file" path="octos-home/.octos/auth.json" />
+</full-backup-content>
